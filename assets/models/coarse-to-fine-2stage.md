@@ -43,6 +43,13 @@
 - **期望管理**：对强基线的净增益小（+0.01 Dice）；若单阶段 nnU-Net 尚未跑通，先跑通它，再上两阶段。
 - 与 nnUNet 自带 **cascade**（低分辨率全图 → 原分辨率 patch）机制相近但不同：cascade 是分辨率级通用级联，本方法是目标级 ROI（视野可比 cascade 更小、更贴目标）。选型时值得对比 cascade 配置——它是现成的、无需自建数据流。
 
+## 对比基准与选型建议
+
+- **对比基准**：同数据、同训练配方的**单阶段 nnU-Net**（Dice/IoU 0.84/0.74 对 0.85/0.75，净增益仅 +0.01）与 UNETR/3D TransUNet（0.82/0.71–0.72）；注意 Table S1 第二名就是配置得当的 nnU-Net。
+- **更好的条件**：大视野中占比极小的固定解剖结构（胸腺类）；跨中心部署稳健性优先；粗分割输出可复用为 ROI/测量源。
+- **值得尝试**：单阶段 nnU-Net（建议直接 ResEnc 预设，`nnunet-resenc.md`）跑通且确认"目标占比/有效分辨率"是瓶颈之后；nnUNet 自带 cascade 配置可作为现成的近似基线先试。
+- **不值得**：目标占比不低；粗分割召回没有把握（级联误差传播不可恢复）；作为任务的首个实验——先有强单阶段基线再谈级联。
+
 ## 经验备注
 
 - 官方代码现状（2026-10-08 检查）：`thymus_analysis` 仓库是测量/可视化骨架（依赖 nnunetv2、SimpleITK 等），`src/segmentation.py` 的 `segment_ct_file` 为空 stub；`config/config.yaml` 暴露推理口径：tile_step_size 0.5、gaussian、mirroring、fold 0、`checkpoint_best.pth`；README 注明要模型参数需联系 jianggw14@midea.com。**复现只能自训**。
