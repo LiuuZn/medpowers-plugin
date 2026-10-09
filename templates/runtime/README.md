@@ -16,10 +16,21 @@
 
 环境首次使用时运行技能 `skills/init-env`（**先问任务画像，用户必须全部答复后才会继续**；随后询问可用卡、检查并按需 uv 初始化 PyTorch + CUDA 环境），结果落在 `env.json`。重新初始化前注意其中用户答复（任务画像、可用卡）不得静默丢失（见 SKILL.md 约束）。
 
+## 训练进程必须后台分离运行（强制）
+
+智能体会话无法长期驻留，而训练是小时级到天级的长任务：**绝不允许把训练作为智能体会话的前台命令或子进程直接运行**——会话超时、被杀甚至正常退出都会连带终止训练进程，损失全部进度。启动训练必须做 OS 级进程分离：
+
+- 启动形式：`setsid nohup <训练命令> > <日志文件> 2>&1 < /dev/null &`（或等价的 tmux/screen 会话）——`setsid` 使训练脱离智能体的进程组与会话，`nohup` 忽略 SIGHUP，三路重定向保证训练不依赖任何终端；
+- 智能体工具自带的"后台执行"若仍随会话终止，**不满足**本要求，必须用上述 OS 级分离；
+- stdout/stderr 一律重定向到任务仓库内的日志文件，该路径同时写进 lease 的 `log` 字段；
+- lease 的 `pid` 记**分离后真实训练进程的 pid**（不是启动 shell 的 pid），供 stale lease 核对；
+- 智能体不持有训练进程，只通过**轮询日志尾部、lease 与 `nvidia-smi`** 跟踪进度；智能体会话中途退出，训练必须照常继续，事后凭 lease + 实验记录占位接手；
+- 启动后立即 `ps -p <pid>` 确认进程存活、日志文件在增长，才算启动成功。
+
 ## lease 协议（三步）
 
 1. **训练前**：读 `env.json` 确认目标卡 `available: true`；读 `training/` 下全部 lease；并用 `nvidia-smi` 实测。三者都满足才启动；任一不满足，换卡、等待或排队。
-2. **启动时**：写自己的 lease 文件（原子写：先写 `<slug>.json.tmp` 再 `mv` 为 `<slug>.json`，防止别 agent 读到半个文件）。**同时**建当轮实验记录 `EXP-*`（`status: running`；记录位置由任务仓库自选（默认 `<工作区>/experiments/`），模板见插件 `experiments/TEMPLATE.md`）。
+2. **启动时**：训练进程按上节「训练进程必须后台分离运行」以 `setsid`/`nohup`（或 tmux）与智能体会话分离启动；写自己的 lease 文件（原子写：先写 `<slug>.json.tmp` 再 `mv` 为 `<slug>.json`，防止别 agent 读到半个文件）。**同时**建当轮实验记录 `EXP-*`（`status: running`；记录位置由任务仓库自选（默认 `<工作区>/experiments/`），模板见插件 `experiments/TEMPLATE.md`）。
 3. **结束时**：训练结束或中断，立即删除自己的 lease；补全实验记录，`status` 改 `done` / `interrupted`。
 
 ## lease 字段（JSON）

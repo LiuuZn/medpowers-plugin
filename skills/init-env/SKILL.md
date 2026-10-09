@@ -101,4 +101,4 @@ python3 skills/init-env/init_env.py gpu-static
 - 任务仓库工作区的 `runtime/env.json` 是训练环境与任务画像的**单一事实源**（是否纳入任务仓库的 git 由任务仓库自行决定）。
 - 重新初始化覆盖 env.json 前，先读旧记录：若 `gpu_availability.source == "user"`，必须再次询问用户，不得静默沿用或丢失用户上次的答复；`task_profile` 同理——**每次初始化都必须重新问**（任务没变时用户可确认沿用原文），不得静默沿用。
 - 未收集到任务画像时，save 的校验会拒绝写入 env.json——这是"不答画像不得完成初始化"的兜底。
-- 训练/长时间占卡前仍须按 runtime lease 协议**三确认**（协议模板 `templates/runtime/README.md`：env.json 可用性 + 无冲突 lease + `nvidia-smi` 实测）；env.json 只声明"哪些卡归本目录可用"，不反映实时占用。
+- 训练/长时间占卡前仍须按 runtime lease 协议**三确认**（协议模板 `templates/runtime/README.md`：env.json 可用性 + 无冲突 lease + `nvidia-smi` 实测）；启动训练时进程必须**后台分离**（`setsid`/`nohup`/tmux 脱离智能体会话，不得作为会话前台子进程，详见协议「训练进程必须后台分离运行」节）；env.json 只声明"哪些卡归本目录可用"，不反映实时占用。

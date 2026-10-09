@@ -11,6 +11,8 @@
 输出：包目录，包名 = `bad_case_analysis_` 前缀 + 生成时刻，精确到分钟
 （bad_case_analysis_<YYYYMMDDHHMM>，如 bad_case_analysis_202610091311，目录与
 同名 tar.gz 构成交付物）；未显式传 --out 时自动取 runs/bad_case_analysis_<时间戳>。
+tar.gz 只是默认压缩格式：调用方所在任务仓库对交付包格式/命名另有规定时，
+以仓库规定为准（本脚本只组装包目录，不执行压缩，压缩命令由调用方按适用规定执行）。
 - cases/：模型/评测/参照等典型案例，全部扁平存放，文件以案例 ID
   （<case>__<split>）开头命名：<案例id>.nrrd + <案例id>_fig.png +
   <案例id>_annotation.json；
@@ -276,7 +278,8 @@ def main():
         removed = clean_old_packs(out)
         print(f"cleaned old packs: {len(removed)}" +
               ("  " + " ".join(str(p) for p in removed) if removed else ""))
-    print(f"打包：tar czf {out.parent / (out.name + '.tar.gz')} -C {out.parent} {out.name}")
+    print(f"打包（默认 tar.gz；若任务仓库另有交付格式规定，按仓库规定压缩）："
+          f"tar czf {out.parent / (out.name + '.tar.gz')} -C {out.parent} {out.name}")
     print("badcase_analysis_report.md 与 data_problems.md 的模型撰写小节"
           "需按 SKILL.md 第 4 步模板补齐")
 

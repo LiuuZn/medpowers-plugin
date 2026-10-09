@@ -25,7 +25,7 @@ mtskills/
 │   ├── data-mgmt/           # ② 数据管理：数据根目录与登记表（runtime/data.json）+ 分任务数据格式规范
 │   ├── self-update/         # ③ 自更新：git 拉取最新主分支（只快进；runtime 外改动拒绝更新；仅服务 git 安装副本）
 │   └── badcase-analysis/   # ④ bad case 定位范式+错误案例分析包：定位分层→溯源→重建→遴选→渲染→打包
-├── hooks/                   # 插件 hook：SessionStart 注入方法论红线摘要（可视化红线/实验记录双时点/lease 三确认）
+├── hooks/                   # 插件 hook：SessionStart 注入方法论红线摘要（可视化红线/实验记录双时点/lease 三确认/训练后台分离）
 ├── templates/runtime/       # 任务仓库 <工作区>/runtime/ 的协议模板（README + 各 *.example.json，init-env 初始化时拷入）
 ├── .claude-plugin/          # 插件与市场清单（仓库即市场；plugin.json 的 version 是唯一事实源，发版纪律见 README.md）
 │   ├── plugin.json
@@ -42,7 +42,10 @@ mtskills/
 溯源 → 管线重建而非打补丁 → 双通道独立验证 → 保守分层治理 → 修复与重训批准点隔离；
 读任务仓库的逐例预测与分桶统计，含「锚点直接放在标注切片上」的校验，按五类错误自动
 遴选典型案例（每类 3-5 例），在原始影像上渲染标注与预测的对比图，组装「错误分析文档 +
-案例原始 nrrd + 标注表」包并打 tar.gz；流程与质量纪律任务无关，逐例推理/渲染/溯源重建
+案例原始 nrrd + 标注表」包并打 tar.gz（默认交付）；**开始分析前必须先查阅任务仓库
+自身的分析要求**——不同仓库需要不同的分析角度、关注维度与判定口径，这些信息只在
+任务仓库中（其 AGENTS.md/README/实验记录/既有分析包），有规定则融合/从其规定，
+通用范式与质量纪律是底线；流程与质量纪律任务无关，逐例推理/渲染/溯源重建
 工具在任务仓库（参考实现 spine_locator，含全量解剖审计与标注映射重建脚本）。
 `skills/` 之外，本仓库自身的开发管理技能放 `.agents/skills/`（智能体自动发现路径）：**git-mgmt**（双远端布局——**origin=私有 GitLab，默认推送目标**；github=公有 GitHub 开源发布远端，仅当用户**当次明确指示**才允许推送，脚本层还需 `--publish` 双确认；未指明远端时一律推 origin，可以提醒用户"是否发布到 GitHub"但提醒不等于授权；含 conventional commits 中文提交规范、安装副本只拉不推、发布前泄露面扫描；status/push/add-github/check/validate 五个动作，validate 负责发布前插件清单与收录边界校验）。
 
@@ -57,7 +60,7 @@ mtskills/
 ## 核心方法论（一次训练调优的完整回路）
 
 1. **选基础模型**（methods/base-model-selection.md）：根据任务画像（模态、2D/2.5D/3D、数据量级、目标结构尺度、显存预算；画像由 init-env 问卷采集，见任务仓库 `<工作区>/runtime/env.json` 的 `task_profile`）从 assets/models 中选出主选 + 备选，写明理由。
-2. **训练并诊断**（methods/training-state-diagnosis.md）：按 `templates/runtime/README.md` 的 lease 协议（runtime 状态落任务仓库 `<工作区>/runtime/training/`）登记 GPU lease 后，在任务仓库训练；依据训练/验证曲线，**特别是不同损失函数与目标函数下的行为差异**（含不可导指标与可导目标是否背离），判断当前训练状态（欠拟合/过拟合/lr 失当/损失失衡/收敛平台等）。
+2. **训练并诊断**（methods/training-state-diagnosis.md）：按 `templates/runtime/README.md` 的 lease 协议（runtime 状态落任务仓库 `<工作区>/runtime/training/`）登记 GPU lease 后，在任务仓库**以后台分离方式启动训练**（`setsid`/`nohup`/tmux 做 OS 级分离——训练是长任务而智能体会话无法长期驻留，绝不能作为会话的前台子进程，见协议模板「训练进程必须后台分离运行」节）；依据训练/验证曲线，**特别是不同损失函数与目标函数下的行为差异**（含不可导指标与可导目标是否背离），判断当前训练状态（欠拟合/过拟合/lr 失当/损失失衡/收敛平台等）。
 3. **推荐下一轮**（methods/next-config-recommendation.md）：将诊断结果映射为具体的训练逻辑/配置变更（变更优先级：损失与超参 → 预处理 → 模型），并给出验证变更是否生效的预期信号。
 4. **记录实验（双时点）**：启动训练时建占位记录（`status: running`），结束时补全（`done` / `interrupted`），规范见下；然后回到第 1 步循环。
 
@@ -73,7 +76,7 @@ mtskills/
 ## 资源调度（文件系统，协议模板见 templates/runtime/README.md）
 
 - 目的：给所有智能体提供"哪些任务正在训练、占用哪张卡多少显存"的上下文，避免撞卡。哪些卡归本训练目录可用，以任务仓库 `<工作区>/runtime/env.json`（初始化时用户答复的记录）为准。
-- 协议三步：**训练前**读任务仓库 `<工作区>/runtime/training/` 全部 lease 并用 `nvidia-smi` 实测（快照不能替代实测），三确认（env.json 可用性 + 无冲突 lease + 实测空闲）都满足才启动；**启动时**原子写一个 lease JSON（任务、GPU、pid、起止时间、日志位置）到 `<工作区>/runtime/training/`；**结束时**立即删除自己的 lease。
+- 协议三步：**训练前**读任务仓库 `<工作区>/runtime/training/` 全部 lease 并用 `nvidia-smi` 实测（快照不能替代实测），三确认（env.json 可用性 + 无冲突 lease + 实测空闲）都满足才启动；**启动时**训练进程必须后台分离启动（`setsid`/`nohup`/tmux 脱离智能体会话，会话终止不得连带杀掉训练；lease 的 pid 记分离后真实训练进程，日志重定向到文件），并原子写一个 lease JSON（任务、GPU、pid、起止时间、日志位置）到 `<工作区>/runtime/training/`；**结束时**立即删除自己的 lease。
 - lease 是声明式参考，不是硬锁；真实占用以 `nvidia-smi` 为准。stale lease（进程已不存在）核对 pid 后可直接清理。只有训练和长时间占 GPU 的任务需要登记，短时推理不必。
 
 ## 资产收录边界
