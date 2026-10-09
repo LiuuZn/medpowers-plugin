@@ -11,8 +11,9 @@ tar.gz 压缩包**，解压后包内三要素缺一不可：① 错误分析文�
 ② 案例原始影像（cases/ 目录，扁平存放 nrrd）；③ 标注信息（层面/有无等简单标注直接
 写在文档表格里；复杂标注另存文件并在文档中引用）。**数据/标注问题单独成第二份
 文档 `data_problems.md`（全量分析）与 `data_problems/` 文件夹（全量案例数据）**。
-**包名 = 生成时刻，精确到分钟**
-（YYYYMMDDHHMM，如 202610091311），同目录只保留现行一套，生成新包时自动清理旧包。
+**包名 = `bad_case_analysis_` 前缀 + 生成时刻，精确到分钟**
+（`bad_case_analysis_<YYYYMMDDHHMM>`，如 `bad_case_analysis_202610091311`，目录与
+tar.gz 同名），同目录只保留现行一套，生成新包时自动清理旧包。
 
 ## 定位范式（项目无关）：bad case 驱动的问题定位
 
@@ -192,30 +193,32 @@ data_problems.md；模型错误与评测工具缺陷不属于数据问题，不�
 渲染完成后**必须请用户查看并反馈判断结论**；智能体不得自行解读影像内容并据以
 归因或决策（红线，见 AGENTS.md「医疗影像可视化红线」）。
 
-## 第 3 步：组装并打包（交付物 = tar.gz，包名 = 生成时刻）
+## 第 3 步：组装并打包（交付物 = tar.gz，包名 = bad_case_analysis_ 前缀 + 生成时刻）
 
 ```bash
 python3 skills/badcase-analysis/scripts/assemble_pack.py \
   --typical runs/error_analysis/typical_cases.json \
   --data runs/error_analysis/data_problems.json \
   --img-dir <processed 影像目录>
-# 未显式传 --out 时，包目录自动取 runs/<YYYYMMDDHHMM>（生成时刻，分钟精度，
-# 如 runs/202610091311），并自动清理同目录下的旧分析包（--keep-old 可保留）。
+# 未显式传 --out 时，包目录自动取 runs/bad_case_analysis_<YYYYMMDDHHMM>
+# （生成时刻，分钟精度，如 runs/bad_case_analysis_202610091311），并自动清理
+# 同目录下的旧分析包（--keep-old 可保留）。
 # 错误分析文档写完后打包（交付物就是这个压缩包，不得遗漏；包名与目录同名）
-tar czf runs/202610091311.tar.gz -C runs 202610091311
+tar czf runs/bad_case_analysis_202610091311.tar.gz -C runs bad_case_analysis_202610091311
 ```
 
-**命名与清理纪律（用户验收硬规则）**：分析包（目录与 tar.gz）一律以生成时刻命名，
-精确到分钟（YYYYMMDDHHMM，如 202610091311），不再使用 badcase_pack / badcase_pack_v2
-这类手工版本号。组装脚本生成新包时自动删除同目录下的旧分析包——历史
-`badcase_pack*` 名与更早时间戳名的包目录及 tar.gz 都在清理范围，同刻只保留
-现行一套，避免多套报告并存造成版本混淆。
+**命名与清理纪律（用户验收硬规则）**：分析包（目录与 tar.gz）一律命名为
+`bad_case_analysis_<YYYYMMDDHHMM>`（前缀 + 生成时刻，精确到分钟，如
+`bad_case_analysis_202610091311`），不再使用 badcase_pack / badcase_pack_v2 这类
+手工版本号，也不使用裸时间戳名。组装脚本生成新包时自动删除同目录下的旧分析包——
+历史 `badcase_pack*` 名、更早的裸时间戳名与旧前缀 `bad_case_analysis_*` 名的
+包目录及 tar.gz 都在清理范围，同刻只保留现行一套，避免多套报告并存造成版本混淆。
 
 包结构（用户验收硬结构；**不建案例子文件夹**，cases/ 下全部扁平，文件以案例 ID
 （<case>__<split>）开头命名，提高逐例查看效率）：
 
 ```
-runs/202610091311/             # 包目录名 = 生成时刻（YYYYMMDDHHMM）
+runs/bad_case_analysis_202610091311/  # 包目录名 = bad_case_analysis_ 前缀 + 生成时刻
 ├── badcase_analysis_report.md   # 错误分析主文档（第 4 步撰写，图引用 cases/ 内文件）
 ├── data_problems.md             # 数据/标注问题全量分析（脚本生成骨架 + 模型补撰写）
 ├── annotations.csv              # 典型 + 全量数据案例的机器可读总表（group 列区分）

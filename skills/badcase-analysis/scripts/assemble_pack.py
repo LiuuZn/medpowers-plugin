@@ -8,8 +8,9 @@
 - --img-dir 原始影像目录（<case>.nrrd，任务仓库数据根提供）
 - --data data_problems.json（第 1 步 --data-out 产物，数据/标注问题全量清单；
   渲染范围须包含其中全部案例）。
-输出：包目录，包名 = 生成时刻，精确到分钟（YYYYMMDDHHMM，如 202610091311）；
-未显式传 --out 时自动取 runs/<时间戳>。
+输出：包目录，包名 = `bad_case_analysis_` 前缀 + 生成时刻，精确到分钟
+（bad_case_analysis_<YYYYMMDDHHMM>，如 bad_case_analysis_202610091311，目录与
+同名 tar.gz 构成交付物）；未显式传 --out 时自动取 runs/bad_case_analysis_<时间戳>。
 - cases/：模型/评测/参照等典型案例，全部扁平存放，文件以案例 ID
   （<case>__<split>）开头命名：<案例id>.nrrd + <案例id>_fig.png +
   <案例id>_annotation.json；
@@ -33,12 +34,20 @@ FLAG_CN = {"same_slice": "同片", "disorder": "乱序", "gap_out": "间距越�
            "thin": ">120片"}  # 参考实现的结构 flag 中文对照；未知 flag 回退键名
 
 
+def _is_prefixed_ts(name: str) -> bool:
+    """bad_case_analysis_<YYYYMMDDHHMM> 形态（前缀 + 12 位数字时间戳）。"""
+    return (name.startswith("bad_case_analysis_")
+            and name[len("bad_case_analysis_"):].isdigit()
+            and len(name) == len("bad_case_analysis_") + 12)
+
+
 def clean_old_packs(out: Path):
     """删除同目录下的旧分析包，保留当前包名（目录与同名 tar.gz）。
 
-    清理范围：12 位数字时间戳名（YYYYMMDDHHMM）的包目录及 .tar.gz，
-    以及历史 badcase_pack* 名（如 badcase_pack、badcase_pack_v2）的包目录及
-    .tar.gz。返回被删除路径列表。
+    清理范围（历史三代命名都在内）：现行 bad_case_analysis_<12位时间戳> 名的
+    包目录及 .tar.gz、过渡期裸 12 位时间戳名（YYYYMMDDHHMM）、以及更早的
+    badcase_pack* 名（如 badcase_pack、badcase_pack_v2）的包目录及 .tar.gz。
+    返回被删除路径列表。
     """
     removed = []
     if not out.parent.exists():
@@ -50,9 +59,11 @@ def clean_old_packs(out: Path):
         stem = p.name[:-7] if p.name.endswith(".tar.gz") else None
         is_ts_dir = p.is_dir() and p.name.isdigit() and len(p.name) == 12
         is_ts_tgz = p.is_file() and stem is not None and stem.isdigit() and len(stem) == 12
+        is_bca_dir = p.is_dir() and _is_prefixed_ts(p.name)
+        is_bca_tgz = p.is_file() and stem is not None and _is_prefixed_ts(stem)
         is_legacy = p.name.startswith("badcase_pack") and (
             p.is_dir() or (p.is_file() and p.name.endswith(".tar.gz")))
-        if is_ts_dir or is_ts_tgz or is_legacy:
+        if is_ts_dir or is_ts_tgz or is_bca_dir or is_bca_tgz or is_legacy:
             shutil.rmtree(p) if p.is_dir() else p.unlink()
             removed.append(p)
     return removed
@@ -197,7 +208,8 @@ def main():
     ap.add_argument("--data", default=None,
                     help="data_problems.json：数据/标注问题全量清单（第 1 步 --data-out 产物）")
     ap.add_argument("--out", default=None,
-                    help="包目录（缺省 runs/<YYYYMMDDHHMM>，生成时刻精确到分钟）")
+                    help="包目录（缺省 runs/bad_case_analysis_<YYYYMMDDHHMM>，"
+                         "生成时刻精确到分钟）")
     ap.add_argument("--keep-old", action="store_true",
                     help="保留同目录下的旧分析包（缺省组装成功后自动清理）")
     args = ap.parse_args()
@@ -205,7 +217,8 @@ def main():
     doc = json.load(open(args.typical))
     data_doc = json.load(open(args.data)) if args.data else None
     out = Path(args.out) if args.out else \
-        Path("runs") / datetime.now().strftime("%Y%m%d%H%M")
+        Path("runs") / ("bad_case_analysis_"
+                        + datetime.now().strftime("%Y%m%d%H%M"))
     cases_dir = out / "cases"
     cases_dir.mkdir(parents=True, exist_ok=True)
     data_dir = out / "data_problems"
