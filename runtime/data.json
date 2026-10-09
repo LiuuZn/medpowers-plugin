@@ -1,0 +1,38 @@
+{
+  "data_root": {
+    "path": "/ssd/lx/data",
+    "source": "user",
+    "answer": "用户审阅数据管理技能方案时以 /ssd/lx/data/lung_seg 为例，确认数据统一根目录为 /ssd/lx/data（2026-10-04）",
+    "set_at": "2026-10-04T19:30:00+08:00"
+  },
+  "datasets": {
+    "spine_keyplane": {
+      "path": "/ssd/lx/data/spine_keyplane",
+      "task_type": "plane3d",
+      "task_type_label": "3D 关键平面检出",
+      "dimension": "3d",
+      "modality": [
+        "CT"
+      ],
+      "recipes": [
+        "raw-ref"
+      ],
+      "dataset_json": "/ssd/lx/data/spine_keyplane/dataset.json",
+      "first_registered_at": "2026-10-05T01:41:03+08:00",
+      "registered_at": "2026-10-05T01:41:03+08:00"
+    },
+    "spine_manual_label": {
+      "path": "/ssd/lx/data/spine_manual_label",
+      "task_type": "manual_keyslice_annotation",
+      "task_type_label": "人工椎体关键层面标注（2D 原片）",
+      "dimension": "2d",
+      "modality": [
+        "CT"
+      ],
+      "recipes": [],
+      "dataset_json": "/ssd/lx/data/spine_manual_label/dataset.json",
+      "first_registered_at": "2026-10-08T17:06:00+08:00",
+      "registered_at": "2026-10-08T17:06:00+08:00"
+    }
+  }
+}

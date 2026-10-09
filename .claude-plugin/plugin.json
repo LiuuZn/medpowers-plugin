@@ -1,0 +1,21 @@
+{
+  "name": "mtskills",
+  "version": "0.1.0",
+  "description": "Methodology skill library for training efficient medical-imaging deep learning small models: base model selection, training-state diagnosis, and next-config recommendation.",
+  "description_i18n": {
+    "en": "Methodology skill library for training efficient medical-imaging deep learning small models: base model selection, training-state diagnosis, and next-config recommendation.",
+    "zh-CN": "医疗小模型训练方法论技能库：基础模型选型、训练状态诊断与下一轮配置推荐。"
+  },
+  "author": {
+    "name": "liuxin"
+  },
+  "repository": "https://gitlab.suoyin.info/liuxin/mtskills.git",
+  "keywords": [
+    "medical-imaging",
+    "deep-learning",
+    "training-tuning",
+    "small-models",
+    "segmentation"
+  ],
+  "skills": "skills"
+}

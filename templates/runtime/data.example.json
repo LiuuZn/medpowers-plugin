@@ -1,0 +1,23 @@
+{
+  "data_root": {
+    "path": "<工作区>/data",
+    "source": "user",
+    "answer": "",
+    "set_at": ""
+  },
+  "datasets": {
+    "<dataset-slug>": {
+      "path": "<工作区>/data/<dataset-slug>",
+      "task_type": "seg3d",
+      "task_type_label": "待登记填写",
+      "dimension": "3d",
+      "modality": [
+        "待登记填写"
+      ],
+      "recipes": [],
+      "dataset_json": "<工作区>/data/<dataset-slug>/dataset.json",
+      "first_registered_at": "登记时自动写入（ISO 8601）",
+      "registered_at": "登记时自动写入（ISO 8601）"
+    }
+  }
+}

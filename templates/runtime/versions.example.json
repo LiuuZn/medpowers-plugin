@@ -1,0 +1,21 @@
+{
+  "baseline": {
+    "exp": "EXP-YYYYMMDD-<序号>-<slug>",
+    "task_repo": "<任务仓库路径>",
+    "task": "任务一句话描述",
+    "checkpoints": {
+      "stage1": "runs/<exp>/best.pt",
+      "refiners": []
+    },
+    "decode": "解码方式说明（若有）",
+    "metrics": {
+      "test_strict_exact": 0.0,
+      "test_hit_within_1slice": 0.0,
+      "val_strict_exact": 0.0,
+      "val_hit_within_1slice": 0.0
+    },
+    "config_doc": "runs/<CONFIG>.md",
+    "set_at": "YYYY-MM-DD"
+  },
+  "notes": "示例文件：具名版本指针（baseline/sota/current）由实验流程按此结构维护，「回滚到基线/切到 sota」即读此文件。"
+}

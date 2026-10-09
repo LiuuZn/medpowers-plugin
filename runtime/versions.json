@@ -1,0 +1,26 @@
+{
+  "baseline": {
+    "exp": "EXP-20261005-010-ensemble",
+    "task_repo": "/ssd/lx/spine_locator",
+    "task": "spine_keyplane 关键层面定位（T12/T13/L1）",
+    "checkpoints": {
+      "stage1": "runs/exp003_loss/best.pt",
+      "refiners": [
+        "runs/exp007_refiner_v3/best.pt",
+        "runs/exp007b_seed2/best.pt",
+        "runs/exp007c_seed13/best.pt",
+        "runs/exp007d_seed21/best.pt"
+      ]
+    },
+    "decode": "predict_ens offsets -3..+3 概率累加 argmax",
+    "metrics": {
+      "test_strict_exact": 0.593,
+      "test_hit_within_1slice": 0.894,
+      "val_strict_exact": 0.608,
+      "val_hit_within_1slice": 0.873
+    },
+    "config_doc": "runs/BASELINE.md",
+    "set_at": "2026-10-05"
+  },
+  "notes": "sota 暂缺：EXP-011/013 特征注入与 EXP-012 规则解码均未超基线；strict 上限受标注一致性制约（EXP-012）。"
+}

@@ -1,0 +1,16 @@
+# 运行时状态不进 git（目录结构用 .gitkeep 占位）
+runtime/gpu/*.json
+runtime/gpu/*.json.tmp
+runtime/training/*.json
+runtime/training/*.json.tmp
+runtime/*.json.tmp
+# Python 缓存
+__pycache__/
+*.pyc
+
+# SDD 脚手架（superpowers subagent-driven-development 账本与简报）
+.superpowers/
+
+# 实验记录归任务仓库管理，绝不纳入本仓库 git（模板除外）
+experiments/*
+!experiments/TEMPLATE.md

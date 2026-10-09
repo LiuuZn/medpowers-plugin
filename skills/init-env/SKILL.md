@@ -1,0 +1,104 @@
+---
+name: init-env
+description: 初始化 MTSkills 运行环境：第一件事是任务画像问卷——询问用户目标、医疗影像模态、2D/2.5D/3D 建模维度、分割/分类/配准等任务类型，用户必须全部答复后才能继续任何后续步骤；随后查询 GPU 静态信息（显存总量）、询问用户哪些卡可用（默认全部可用）、检查 PyTorch + CUDA 张量训练环境（默认 uv 虚拟环境，不可用时经用户同意用 uv 初始化整套环境，用户也可指定系统或其他解释器），并把全部结果持久化到任务仓库工作区的 runtime/env.json。会话首次涉及训练、调优或资源调度时使用。
+---
+
+# init-env — 初始化环境
+
+只做初始化：GPU 只查**静态信息**（index/name/显存总量）。利用率、温度、进程等动态信息不在本技能范围，需要时实时 `nvidia-smi`。
+
+**第 1 步是硬性门禁**：任务画像没有答复，后续步骤（GPU 清单、Python 环境、写入 env.json）一律不得开始——不知道任务是什么，选基础模型、推荐配置都无从谈起。
+
+## 流程（含三次用户交互）
+
+### 第 1 步：任务画像问卷（必须问、用户必须答；无默认值）
+
+用 AskUserQuestion 一次问 4 个问题：
+
+1. **本次目标**（header「本次目标」）：这次要通过 MTSkills 达成什么？
+   - 新任务完整回路——从基础模型选型开始，走"选型 → 训练 → 诊断 → 下一轮"
+   - 已有任务调优——训练已在进行，要诊断训练状态并推荐下一轮配置
+   - 暂不训练——先完成环境初始化（画像仍须按计划中的任务回答，不得留空）
+2. **影像模态**（header「影像模态」，multiSelect）：数据是什么医疗影像？
+   - CT / MRI / X 光（CR、DR）/ 超声；病理、内镜、眼底、多模态等用 Other 说明
+3. **建模维度**（header「维度」）：影像按什么方式建模？
+   - 2D——单张图 / 逐切片独立处理
+   - 2.5D——2D 模型，相邻切片作为上下文输入
+   - 3D——整个体数据一起处理
+4. **任务类型**（header「任务类型」，multiSelect）：是什么任务？
+   - 分割 / 分类 / 配准 / 检测定位；重建、生成、质量评估等用 Other 说明
+
+规则：
+
+- 与第 3 步"可用卡"不同，这里**没有默认回落**：用户不答复就停在原地继续追问，**不得替用户假设任务**。选"暂不训练"也必须回答其余三问（按计划中的任务答）。
+- 答复原文记入 env.json 的 `task_profile`，是 `methods/base-model-selection.md` 任务画像（模态、2D/2.5D/3D、结构尺度……）的直接输入。
+
+### 第 2 步：GPU 静态清单
+
+```
+python3 skills/init-env/init_env.py gpu-static
+```
+
+### 第 3 步：询问可用卡（必须问；答复与否都要记录）
+
+用 AskUserQuestion 问用户："哪些 GPU 可用于本训练目录？"，并说明**默认所有卡都可用**。
+
+- 用户答复 → `gpu_availability.source = "user"`，`answer` 记答复原文，按答复把每张卡的 `available` 标 true/false；
+- 用户未答复/跳过 → `source = "default"`，`answer` 记"默认：所有卡可用"，全部卡 `available = true`。
+
+### 第 4 步：Python 训练环境（只支持 PyTorch + CUDA）
+
+1. 用户指定了解释器（系统的或某个虚拟环境的）→ `python3 skills/init-env/init_env.py check-python <路径>`；
+2. 未指定 → 默认用 uv 虚拟环境（任务仓库工作区根 `.venv`）：直接 `check-python`（脚本会优先查工作区的 `.venv/bin/python`，不存在则回落到系统 python3 并在报告中注明）；
+3. 检查不通过（torch 缺失 / CUDA 张量不可用）→ 询问用户："是否通过 uv 初始化一整套运行环境？"
+   - 同意 → `init-uv [--python 3.11]`（创建 pyproject + `.venv` 并安装 torch；**默认走阿里 PyPI 镜像** `https://mirrors.aliyun.com/pypi/simple/`，同时写入 pyproject 的 `[tool.uv.index]`，后续 `uv add/sync` 也走同一镜像；换源用 `--index <URL>`；下载量数 GB，建议后台运行），完成后重新 `check-python`；
+   - 拒绝 → 如实记录 `status: "not-ready"` 与原因；
+4. 检查/初始化结果写入 env.json 的 `python_env`（`ready` / `not-ready`）。
+
+### 第 5 步：保存与汇报
+
+按下方 schema 组装完整内容（含 `task_profile`），管道交给 save 原子写入；save 会校验 `task_profile` 必填且非空，缺失即拒绝写入。最后向用户汇报：任务画像、可用卡、训练环境状态。
+
+```
+<组装好的 JSON> | python3 skills/init-env/init_env.py save
+```
+
+## env.json schema（save 会校验必填字段；saved_at 由 save 自动补）
+
+```json
+{
+  "task_profile": {
+    "goal": "用户对'本次目标'的答复（选项 + Other/备注补充）",
+    "modality": ["CT"],
+    "dimension": "2.5D",
+    "task_type": ["分割"],
+    "answers_raw": "四问答复原文汇总（可选，便于溯源）",
+    "asked_at": "ISO8601"
+  },
+  "gpus": [
+    {"index": 0, "name": "NVIDIA GeForce RTX 4090", "mem_total_mb": 23028, "available": true}
+  ],
+  "gpu_availability": {
+    "source": "user 或 default",
+    "answer": "用户答复原文，或 '默认：所有卡可用'",
+    "asked_at": "ISO8601"
+  },
+  "python_env": {
+    "type": "uv-venv / system / custom-venv",
+    "interpreter": "/path/to/python",
+    "python": "3.12.3",
+    "torch": "2.x.x 或 null",
+    "cuda_available": false,
+    "cuda_tensor_ok": false,
+    "status": "ready / not-ready",
+    "note": "not-ready 的原因或其他说明"
+  }
+}
+```
+
+## 约束
+
+- 任务仓库工作区的 `runtime/env.json` 是训练环境与任务画像的**单一事实源**（是否纳入任务仓库的 git 由任务仓库自行决定）。
+- 重新初始化覆盖 env.json 前，先读旧记录：若 `gpu_availability.source == "user"`，必须再次询问用户，不得静默沿用或丢失用户上次的答复；`task_profile` 同理——**每次初始化都必须重新问**（任务没变时用户可确认沿用原文），不得静默沿用。
+- 未收集到任务画像时，save 的校验会拒绝写入 env.json——这是"不答画像不得完成初始化"的兜底。
+- 训练/长时间占卡前仍须按 runtime lease 协议**三确认**（协议模板 `templates/runtime/README.md`：env.json 可用性 + 无冲突 lease + `nvidia-smi` 实测）；env.json 只声明"哪些卡归本目录可用"，不反映实时占用。
