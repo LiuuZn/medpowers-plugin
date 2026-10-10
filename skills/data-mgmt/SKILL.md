@@ -1,6 +1,6 @@
 ---
 name: data-mgmt
-description: 数据管理：统一规定训练数据的位置与格式，提供建立、登记、校验、预览、空间报告动作，外加 z 索引标注导入（import-planes）、软链登记源数据（scaffold --link-source）与标注审计工具（label_audit.py）。用户新建/整理/导入训练数据、询问"数据放哪/该存什么格式"、检查数据集完整性、查数据空间占用、导入既有索引式标注、对标注做一致性/上限诊断时使用。数据统一放 runtime/data.json 中 data_root 指定的根目录（默认任务仓库工作区下 <工作区>/data/<dataset>/，用户可改）；3D 默认压缩 NRRD、2D 无损 PNG；按任务类型（3D/2D 分割、2D/3D 分类、3D/2D 包围框检测、3D 关键平面检出）规定目录与标注格式；2.5D 按 3D 存；配准暂缓。
+description: 数据管理：统一规定训练数据的位置与格式，提供建立、登记、校验、预览、空间报告动作，外加 z 索引标注导入（import-planes）、软链登记源数据（scaffold --link-source）与标注审计工具（label_audit.py）。用户新建/整理/导入训练数据、询问"数据放哪/该存什么格式"、检查数据集完整性、查数据空间占用、导入既有索引式标注、对标注做一致性/上限诊断时使用。数据统一放 runtime/data.json 中 data_root 指定的根目录（默认任务仓库工作区下 <工作区>/data/<dataset>/，用户可改）；3D 默认压缩 NRRD、2D 无损 PNG；按任务类型（3D/2D 分割、2D/3D 分类、3D/2D 包围框检测、3D 关键平面检出）规定目录与标注格式；2.5D 按 3D 存；3D 张量轴序固定 z-y-x（z 轴足→头为第 0 维）；配准暂缓。
 ---
 
 # data-mgmt — 数据管理
@@ -36,12 +36,13 @@ description: 数据管理：统一规定训练数据的位置与格式，提供�
 ## 格式总则（所有任务）
 
 1. **3D 默认压缩 NRRD**：`.nrrd` 单文件，写入时开 gzip（SimpleITK：`WriteImage(img, path, True)`）。头是纯文本、人类可读（文本编辑器即可查 spacing/origin/direction），ITK-SNAP/3D Slicer 直接打开；压缩效果与 NIfTI 相当。2D 默认无损 PNG（16-bit 灰度可用）。
-2. 分割标注一律 **uint8**；框/平面等几何标注一律**世界坐标 JSON**（见下）。
-3. 世界坐标约定 **RAS、物理 mm**：标注存世界坐标而非体素坐标——重采样/换 spacing 后不作废，训练时由 loader 用影像 header 的 origin/space directions 变换。
-4. 几何一致性铁律：3D 标注与影像的 sizes / space directions / space origin 完全一致（`check` 强制校验）。
-5. 文件名 ASCII、无空格；case_id 全数据集唯一；3D 多模态用通道后缀 `case_0000.nrrd`、`case_0001.nrrd`（nnU-Net 约定），标注文件不带后缀。
-6. **2.5D 按 3D 存**：2.5D 只是建模习惯（逐切片输入/厚层各向异性），不是严谨的数据维度——数据一律存 3D NRRD（真实各向异性 spacing 进 header），切片与邻层上下文由训练侧 dataset 类负责。dataset.json 的 `dimension` 只记 `2d`/`3d`。
-7. `splits/*.json` 是 case_id 的 JSON 数组，train/val/test 划分的唯一事实源（分类的 label 不带 split 列，划分只看这里）。
+2. **三维张量轴序固定 z-y-x**：z 轴（足→头方向）必须放第 0 维，三个维度按 z-y-x 排列，即加载为 numpy 数组后 shape 一律 `(Z, Y, X)`；NRRD 正本、cache 解包的 `.npy`、训练侧一切 3D 张量（影像/掩码/patch）都遵守本轴序，物理朝向信息仍以 header 的 space directions 为准。
+3. 分割标注一律 **uint8**；框/平面等几何标注一律**世界坐标 JSON**（见下）。
+4. 世界坐标约定 **RAS、物理 mm**：标注存世界坐标而非体素坐标——重采样/换 spacing 后不作废，训练时由 loader 用影像 header 的 origin/space directions 变换。
+5. 几何一致性铁律：3D 标注与影像的 sizes / space directions / space origin 完全一致（`check` 强制校验）。
+6. 文件名 ASCII、无空格；case_id 全数据集唯一；3D 多模态用通道后缀 `case_0000.nrrd`、`case_0001.nrrd`（nnU-Net 约定），标注文件不带后缀。
+7. **2.5D 按 3D 存**：2.5D 只是建模习惯（逐切片输入/厚层各向异性），不是严谨的数据维度——数据一律存 3D NRRD（真实各向异性 spacing 进 header），切片与邻层上下文由训练侧 dataset 类负责。dataset.json 的 `dimension` 只记 `2d`/`3d`。
+8. `splits/*.json` 是 case_id 的 JSON 数组，train/val/test 划分的唯一事实源（分类的 label 不带 split 列，划分只看这里）。
 
 ## 各任务类型的格式（processed/<recipe>/ 内）
 
