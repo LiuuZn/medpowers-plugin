@@ -24,9 +24,10 @@ mtskills/
 ├── skills/                  # 分发给训练仓库的技能（一技能一目录：SKILL.md + 脚本）
 │   ├── init-env/            # ① 初始化环境：建任务仓库工作区的 runtime 目录 + 查询并持久化 GPU 状态
 │   ├── data-mgmt/           # ② 数据管理：数据根目录与登记表（runtime/data.json）+ 分任务数据格式规范
-│   ├── self-update/         # ③ 自更新：git 拉取最新主分支（只快进；runtime 外改动拒绝更新；仅服务 git 安装副本）
-│   └── badcase-analysis/   # ④ bad case 定位范式+错误案例分析包：定位分层→溯源→重建→遴选→渲染→打包
-├── hooks/                   # 插件 hook：SessionStart 注入方法论红线摘要（可视化红线/实验记录双时点/lease 三确认/训练后台分离）
+│   ├── exp-mgmt/            # ③ 实验记录管理：全局唯一编号（EXP-001 起递增）+ planned→running→done/interrupted(+cancelled) 三时点状态机 + git 自动提交 + INDEX 自动生成 + 编号/lease 校验 + 旧格式迁移（new/start/finish/cancel/list/check/migrate）
+│   ├── self-update/         # ④ 自更新：git 拉取最新主分支（只快进；runtime 外改动拒绝更新；仅服务 git 安装副本）
+│   └── badcase-analysis/   # ⑤ bad case 定位范式+错误案例分析包：定位分层→溯源→重建→遴选→渲染→打包
+├── hooks/                   # 插件 hook：SessionStart 注入方法论红线摘要（可视化红线/实验记录三时点（git 管理）/lease 三确认/训练后台分离）
 ├── templates/runtime/       # 任务仓库 <工作区>/runtime/ 的协议模板（README + 各 *.example.json，init-env 初始化时拷入）
 ├── .claude-plugin/          # 插件与市场清单（仓库即市场；plugin.json 的 version 是唯一事实源，发版纪律见 README.md）
 │   ├── plugin.json
@@ -37,7 +38,7 @@ mtskills/
 ```
 
 
-各资产/方法目录的 README 定义了条目格式与收录范围，新增条目前先读对应 README。技能放 `skills/<name>/`（一技能一目录：SKILL.md 用 frontmatter 的 name/description 定义触发条件与步骤，脚本放同目录），现有技能：**init-env**（初始化环境：**第一件事是任务画像问卷**——目标、医疗影像模态、2D/2.5D/3D 建模维度、分割/分类/配准等任务类型，用户必须全部答复才能继续后续步骤；然后查 GPU 静态清单、询问可用卡并记录、检查/按需 uv 初始化 PyTorch+CUDA 环境（默认走阿里 PyPI 镜像，`--index` 可换源），结果写入任务仓库工作区的 `runtime/env.json`）。**data-mgmt**（数据管理：数据统一放 `runtime/data.json` 的 `data_root` 下（默认任务仓库工作区下的 `<工作区>/data/<dataset>/`，用户可改）；三层存储 raw/processed/cache；3D 默认压缩 NRRD、2D 无损 PNG、分割标注 uint8、几何标注世界坐标 JSON；按 seg3d/seg2d/cls2d/cls3d/det3d/det2d/plane3d 规定格式，2.5D 按 3D 存，配准暂缓；scaffold/register/check/preview/du/set-root/import-planes 七个动作 + label_audit.py 标注审计（柱内面积剖面/排名检验/审片图）；dataset.json 含 `annotation` 标注契约字段（produced_by/rule/tolerance/verified，训练前必填））。**self-update**（自更新：通过 git 拉取本仓库最新主分支，更新脚本所在的当前副本——源副本或训练仓库 `.agents/mtskills` 的安装副本均可；只快进、runtime/ 外本地改动拒绝更新、runtime/ 内自动 stash→pop；插件安装模式的更新由各平台插件管理器完成，本技能只服务于 git 安装副本；安装方式见 README.md）。**badcase-analysis**（错误案例分析与标注质量工程，内含项目无关的 **bad case 定位范式**：
+各资产/方法目录的 README 定义了条目格式与收录范围，新增条目前先读对应 README。技能放 `skills/<name>/`（一技能一目录：SKILL.md 用 frontmatter 的 name/description 定义触发条件与步骤，脚本放同目录），现有技能：**init-env**（初始化环境：**第一件事是任务画像问卷**——目标、医疗影像模态、2D/2.5D/3D 建模维度、分割/分类/配准等任务类型，用户必须全部答复才能继续后续步骤；然后查 GPU 静态清单、询问可用卡并记录、检查/按需 uv 初始化 PyTorch+CUDA 环境（默认走阿里 PyPI 镜像，`--index` 可换源），结果写入任务仓库工作区的 `runtime/env.json`）。**data-mgmt**（数据管理：数据统一放 `runtime/data.json` 的 `data_root` 下（默认任务仓库工作区下的 `<工作区>/data/<dataset>/`，用户可改）；三层存储 raw/processed/cache；3D 默认压缩 NRRD、2D 无损 PNG、分割标注 uint8、几何标注世界坐标 JSON；按 seg3d/seg2d/cls2d/cls3d/det3d/det2d/plane3d 规定格式，2.5D 按 3D 存，配准暂缓；scaffold/register/check/preview/du/set-root/import-planes 七个动作 + label_audit.py 标注审计（柱内面积剖面/排名检验/审片图）；dataset.json 含 `annotation` 标注契约字段（produced_by/rule/tolerance/verified，训练前必填））。**exp-mgmt**（实验记录管理：规划时分配任务仓库内全局唯一编号 EXP-001 起递增、建 planned 记录并 git 提交（提交即占号）；安排训练前必须过 start 编号门禁转 running 再写 GPU lease；finish 补全 done/interrupted；cancel 取消且编号不复用；list 从记录自动生成 INDEX.md；check 校验编号唯一/状态合法/INDEX 一致/lease 引用存在且 running；migrate 迁移旧格式 EXP-YYYYMMDD-序号-slug 记录（重编号+补齐时间字段+改写 versions.json 引用+悬空引用报告）；记录必须提交进任务仓库 git，绝不纳入本仓库 git）。**self-update**（自更新：通过 git 拉取本仓库最新主分支，更新脚本所在的当前副本——源副本或训练仓库 `.agents/mtskills` 的安装副本均可；只快进、runtime/ 外本地改动拒绝更新、runtime/ 内自动 stash→pop；插件安装模式的更新由各平台插件管理器完成，本技能只服务于 git 安装副本；安装方式见 README.md）。**badcase-analysis**（错误案例分析与标注质量工程，内含项目无关的 **bad case 定位范式**：
 从 bad case 入手 → 定位问题层级（标注内容/标注管线/预处理/模型/评测）→ 具体问题具体分析；
 八步闭环 = 单例取证假设判别 → 独立参照的绝对位置审计 → 全量扫描+富集分析 → 上游元数据
 溯源 → 管线重建而非打补丁 → 双通道独立验证 → 保守分层治理 → 修复与重训批准点隔离；
@@ -63,15 +64,15 @@ mtskills/
 1. **选基础模型**（methods/base-model-selection.md）：根据任务画像（模态、2D/2.5D/3D、数据量级、目标结构尺度、显存预算；画像由 init-env 问卷采集，见任务仓库 `<工作区>/runtime/env.json` 的 `task_profile`）从 assets/models 中选出主选 + 备选，写明理由。
 2. **训练并诊断**（methods/training-state-diagnosis.md）：按 `templates/runtime/README.md` 的 lease 协议（runtime 状态落任务仓库 `<工作区>/runtime/training/`）登记 GPU lease 后，在任务仓库**以后台分离方式启动训练**（`setsid`/`nohup`/tmux 做 OS 级分离——训练是长任务而智能体会话无法长期驻留，绝不能作为会话的前台子进程，见协议模板「训练进程必须后台分离运行」节）；依据训练/验证曲线，**特别是不同损失函数与目标函数下的行为差异**（含不可导指标与可导目标是否背离），判断当前训练状态（欠拟合/过拟合/lr 失当/损失失衡/收敛平台等）。
 3. **推荐下一轮**（methods/next-config-recommendation.md）：将诊断结果映射为具体的训练逻辑/配置变更（变更优先级：损失与超参 → 预处理 → 模型），并给出验证变更是否生效的预期信号。
-4. **记录实验（双时点）**：启动训练时建占位记录（`status: running`），结束时补全（`done` / `interrupted`），规范见下；然后回到第 1 步循环。
+4. **记录实验（三时点）**：规划时经 exp-mgmt `new` 分配全局唯一编号建 `planned` 记录；安排训练经 `start` 门禁转 `running`；结束时 `finish` 补全（`done` / `interrupted`，取消用 `cancel`），规范见下；然后回到第 1 步循环。
 
 > **前置契约**：训练开始前必须具备 (a) 数据集登记中的 `annotation` 标注契约；(b) 实验记录「验收口径」栏。模型进入平台期时先按 `methods/label-ceiling-diagnosis.md` 测标注一致性上限。具名优秀版本更新任务仓库 `<工作区>/runtime/versions.json`（baseline/sota/current）。
 
-## 实验记录规范（强制，双时点）
+## 实验记录规范（强制，三时点，git 管理）
 
-- **凡是经本技能方法论指导的实验，无论在哪个任务仓库执行、成功与否，都必须**有实验记录（复制本仓库 `experiments/TEMPLATE.md` 模板，命名 `EXP-YYYYMMDD-<序号>-<slug>.md`）。记录存放位置由**任务仓库选择**（默认 `<工作区>/experiments/`），索引表 INDEX.md 同样由任务仓库维护；**即使文件放在本仓库路径下，也绝不纳入本仓库 git**（本仓库只跟踪模板）。没有记录的实验结论不得作为后续调优依据。
-- **启动时建占位**：训练启动（写 GPU lease）的同时建记录，填任务与数据、配置（本轮决策），`status: running`，并在任务仓库的 `experiments/INDEX.md` 追加一行——即使会话中途崩溃，配置与决策依据也不丢，可凭 lease + 半条记录接手。
-- **结束时补全**：训练结束或中断，补结果、诊断、下一轮决策、产物位置；`status` 改 `done`（正常完成）或 `interrupted`（中断，注明原因与已产生的观察），并同步更新 INDEX.md 对应行。
+- **凡是经本技能方法论指导的实验，无论在哪个任务仓库执行、成功与否，都必须**有实验记录。记录由技能 **exp-mgmt**（`skills/exp-mgmt/`）管理：每个实验在**规划时**分配任务仓库内**全局唯一编号**（`EXP-<NNN>`，三位零填充从 001 递增，999 后进位四位），复制 `experiments/TEMPLATE.md` 模板建 `EXP-<NNN>-<slug>.md`，存放位置默认 `<工作区>/experiments/`（任务仓库可改）；INDEX.md 由 exp-mgmt 从记录自动生成，不得手工编辑。**记录必须提交进任务仓库 git**（exp-mgmt 每个时点自动提交，路径级 add，绝不动 `-A`）；即使文件放在本仓库路径下，也**绝不纳入本仓库 git**（本仓库只跟踪模板）。没有记录的实验结论不得作为后续调优依据。
+- **三时点**：①规划——`new` 分配编号建 `planned` 记录（填任务与数据、本轮配置决策），提交即占号，即使训练还没排上；②安排训练——写 GPU lease 前**必须**先过 `start` 编号门禁（校验编号唯一与 planned 状态）转 `running`，lease 的 `experiment` 字段引用该编号；③结束——`finish` 补全结果/诊断/下一轮决策/产物，`status` 改 `done` 或 `interrupted`（注明原因与已产生的观察）。规划后决定不训用 `cancel`（`cancelled`，编号永久占用不复用，注明理由）。
+- **编号纪律**：分配一律走 `new`（扫描取 max+1，提交即占号），禁止手工挑号；存在旧格式 `EXP-YYYYMMDD-<序号>-<slug>` 记录时 `new`/`start` 拒绝执行，先用 `migrate` 迁移（重编号 + 改名 + 补齐 v2 时间字段 + 改写 versions.json 引用 + 报告悬空引用）。`check` 兜底校验：编号唯一、状态与时间字段合法、INDEX 一致、lease 引用存在且 running。
 - 记录须包含：任务与数据、模型选择理由、预处理与目标配置、结果曲线特征、诊断与证据、下一轮决策、产物（checkpoint/log）在任务仓库中的位置。
 
 ## 资源调度（文件系统，协议模板见 templates/runtime/README.md）

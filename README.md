@@ -1,6 +1,6 @@
 # MTSkills — Medical Model Skill
 
-git 管理的方法论仓库，服务对象是医疗场景深度学习**小模型**的训练效率与收敛精度。**本仓库不承载训练**：训练在任务仓库（`/ssd/lx` 下各子项目）中进行；本仓库提供任务无关的知识资产（模型/预处理/目标函数）、"选模型 → 诊断训练状态 → 推荐下一轮配置"的方法论、技能（init-env / data-mgmt / self-update / badcase-analysis）与实验记录规范。
+git 管理的方法论仓库，服务对象是医疗场景深度学习**小模型**的训练效率与收敛精度。**本仓库不承载训练**：训练在任务仓库（`/ssd/lx` 下各子项目）中进行；本仓库提供任务无关的知识资产（模型/预处理/目标函数）、"选模型 → 诊断训练状态 → 推荐下一轮配置"的方法论、技能（init-env / data-mgmt / exp-mgmt / self-update / badcase-analysis）与实验记录规范（EXP-<NNN> 全局编号、三时点、任务仓库 git 管理，由 exp-mgmt 技能兜底）。
 本仓库自身的开发管理技能（双远端 git 规范）单独放 `.agents/skills/git-mgmt/`。
 
 **智能体必读 [AGENTS.md](AGENTS.md)**（仓库定位、目录结构、实验记录与资源调度协议）；人类读者可从 `methods/` 入门。
@@ -99,7 +99,7 @@ python3 .agents/skills/git-mgmt/git_mgmt.py add-github --url https://github.com/
 
 ## FAQ
 
-- **运行时状态归任务仓库，不随插件/副本走**：env.json（任务画像/GPU/训练环境）、data.json（数据登记）、training/ lease 都由技能写到**任务仓库工作区** `<工作区>/runtime/`（与安装方式无关；环境变量 `MTSKILLS_RUNTIME` 可显式指定 runtime 目录），是机器本地状态。在某个任务仓库做的初始化与数据登记只对该任务仓库生效；要沉淀为方法论默认，回源副本改资产/方法/技能并提交。
+- **运行时状态归任务仓库，不随插件/副本走**：env.json（任务画像/GPU/训练环境）、data.json（数据登记）、training/ lease 都由技能写到**任务仓库工作区** `<工作区>/runtime/`（与安装方式无关；环境变量 `MTSKILLS_RUNTIME` 可显式指定 runtime 目录），是机器本地状态。在某个任务仓库做的初始化与数据登记只对该任务仓库生效；要沉淀为方法论默认，回源副本改资产/方法/技能并提交。实验记录（EXP-*）同样归任务仓库：存 <工作区>/experiments/ 并**提交进任务仓库 git**，由技能 exp-mgmt 管理。
 - **插件技能的命名空间**：插件安装后，技能以 `mtskills:技能名` 命名空间出现（如 `mtskills:init-env`、`mtskills:data-mgmt`）。
 - **插件技能的优先级最低**：任务仓库工作区的同名技能会遮蔽插件技能——需要在某仓库定制行为时，把技能复制进工作区改即可覆盖。
 - **嵌套 clone 方式忘了加 .gitignore 怎么办**：若已 `git add` 成 gitlink，在训练仓库 `git rm --cached .agents/mtskills` 再补 `.gitignore` 即可。

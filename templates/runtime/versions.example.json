@@ -1,6 +1,6 @@
 {
   "baseline": {
-    "exp": "EXP-YYYYMMDD-<序号>-<slug>",
+    "exp": "EXP-001",
     "task_repo": "<任务仓库路径>",
     "task": "任务一句话描述",
     "checkpoints": {

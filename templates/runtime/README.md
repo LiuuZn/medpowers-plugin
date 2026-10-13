@@ -9,7 +9,7 @@
 - `env.json`：**初始化结果**（由技能 `skills/init-env` 写入）：任务画像（目标、影像模态、2D/2.5D/3D 维度、任务类型——**用户必答的问卷结果**，未答复不得完成初始化）、GPU 静态清单（index/name/显存总量）、每张卡是否归本训练目录可用（用户答复或默认全部可用）、Python 训练环境状态（PyTorch + CUDA 张量是否验证通过、解释器位置）。由任务仓库自行决定是否纳入其 git 管理，是训练环境与任务画像的单一事实源。
 - `data.json`：**数据管理状态**（由技能 `skills/data-mgmt` 写入）：`data_root`（数据统一根目录，默认任务仓库工作区下的 `<工作区>/data`，用户可改，答复原文随记）+ 全部数据集的登记表（路径/任务类型/维度/recipes）。任务仓库通过此表引用数据，**不复制数据**。由任务仓库自行决定是否纳入其 git 管理。
 - `gpu/`：预留。动态 GPU 信息（利用率/温度/进程等）不持久化，需要时实时 `nvidia-smi`。
-- `versions.json`：**版本指针**。具名版本（baseline/sota/current 等）→ EXP 编号、任务仓库、checkpoint 路径、指标、配置文档路径；「回滚到基线/切到 sota」即读此文件。
+- `versions.json`：**版本指针**。具名版本（baseline/sota/current 等）→ EXP 编号（格式 `EXP-<NNN>`，与实验记录编号一致）、任务仓库、checkpoint 路径、指标、配置文档路径；「回滚到基线/切到 sota」即读此文件。
 - `training/`：**训练信息**。每个进行中的训练任务一个 lease JSON，文件名用任务 slug（如 `bc3seg-abdomen-unet3.json`）。
 
 ## 初始化
@@ -30,7 +30,7 @@
 ## lease 协议（三步）
 
 1. **训练前**：读 `env.json` 确认目标卡 `available: true`；读 `training/` 下全部 lease；并用 `nvidia-smi` 实测。三者都满足才启动；任一不满足，换卡、等待或排队。
-2. **启动时**：训练进程按上节「训练进程必须后台分离运行」以 `setsid`/`nohup`（或 tmux）与智能体会话分离启动；写自己的 lease 文件（原子写：先写 `<slug>.json.tmp` 再 `mv` 为 `<slug>.json`，防止别 agent 读到半个文件）。**同时**建当轮实验记录 `EXP-*`（`status: running`；记录位置由任务仓库自选（默认 `<工作区>/experiments/`），模板见插件 `experiments/TEMPLATE.md`）。
+2. **启动时**：写 lease **之前**先过技能 exp-mgmt 的 `start` 编号门禁（当轮实验记录应在规划时已由 `new` 建为 `planned`；start 校验编号唯一并转 `running`），再训练进程按上节「训练进程必须后台分离运行」以 `setsid`/`nohup`（或 tmux）与智能体会话分离启动；写自己的 lease 文件（原子写：先写 `<slug>.json.tmp` 再 `mv` 为 `<slug>.json`，防止别 agent 读到半个文件），lease 的 `experiment` 字段引用该 `EXP-<NNN>` 编号。
 3. **结束时**：训练结束或中断，立即删除自己的 lease；补全实验记录，`status` 改 `done` / `interrupted`。
 
 ## lease 字段（JSON）
@@ -39,7 +39,7 @@
 {
   "task": "任务一句话描述",
   "repo": "实际训练发生的仓库路径",
-  "experiment": "对应的 EXP-* 编号（若有）",
+  "experiment": "对应的 EXP-<NNN> 编号（若有）",
   "agent": "哪个智能体/会话在跑",
   "pid": 12345,
   "gpus": [0],
