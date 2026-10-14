@@ -1,6 +1,6 @@
 {
   "name": "mtskills",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Methodology skill library for training efficient medical-imaging deep learning small models: base model selection, training-state diagnosis, and next-config recommendation.",
   "description_i18n": {
     "en": "Methodology skill library for training efficient medical-imaging deep learning small models: base model selection, training-state diagnosis, and next-config recommendation.",

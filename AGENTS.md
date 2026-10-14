@@ -26,7 +26,8 @@ mtskills/
 │   ├── data-mgmt/           # ② 数据管理：数据根目录与登记表（runtime/data.json）+ 分任务数据格式规范
 │   ├── exp-mgmt/            # ③ 实验记录管理：全局唯一编号（EXP-001 起递增）+ planned→running→done/interrupted(+cancelled) 三时点状态机 + git 自动提交 + INDEX 自动生成 + 编号/lease 校验 + 旧格式迁移（new/start/finish/cancel/list/check/migrate）
 │   ├── self-update/         # ④ 自更新：git 拉取最新主分支（只快进；runtime 外改动拒绝更新；仅服务 git 安装副本）
-│   └── badcase-analysis/   # ⑤ bad case 定位范式+错误案例分析包：定位分层→溯源→重建→遴选→渲染→打包
+│   ├── badcase-analysis/   # ⑤ bad case 定位范式+错误案例分析包：定位分层→溯源→重建→遴选→渲染→打包
+│   └── seg-error-topology/ # ⑥ 分割误差空间分布画像：FP/FN 按 GT 归一化相对坐标沿各轴分箱（端部/偏向/外溢/局部漏检率）
 ├── hooks/                   # 插件 hook：SessionStart 注入方法论红线摘要（可视化红线/实验记录三时点（git 管理）/lease 三确认/训练后台分离）
 ├── templates/runtime/       # 任务仓库 <工作区>/runtime/ 的协议模板（README + 各 *.example.json，init-env 初始化时拷入）
 ├── .claude-plugin/          # 插件与市场清单（仓库即市场；plugin.json 的 version 是唯一事实源，发版纪律见 README.md）
@@ -49,6 +50,17 @@ mtskills/
 任务仓库中（其 AGENTS.md/README/实验记录/既有分析包），有规定则融合/从其规定，
 通用范式与质量纪律是底线；流程与质量纪律任务无关，逐例推理/渲染/溯源重建
 工具在任务仓库（参考实现 spine_locator，含全量解剖审计与标注映射重建脚本）。
+**seg-error-topology**（分割误差空间分布画像：把过分割/欠分割体素按 **GT 归一化
+相对坐标**沿各物理轴分箱——r∈[-1,1] 为 GT 沿轴范围归一、|r|>1 为轴向外溢——
+输出逐例平均与汇总两口径的箱画像、局部漏检率剖面、μ_r（FP/FN 质量加权平均相对
+坐标）分布与 dice 相关；回答"误差集中在器官的头/足/背/腹/左/右哪个部位、端部
+还是中心带、端部外溢多少"，结论直接喂下一轮配置；前置=对齐 pred/gt 掩码对 +
+spacing + 任务仓库几何核验的轴方向语义；纯掩码程序化测量，不涉影像判读；已知
+陷阱含**稀疏层面式标注**（Slicer 描层 GT 与稠密预测逐体素比对会把层间体积全部
+误计为 FP，先核验轴向占位密度，稀疏时改贴层/层间/越界三口径）。脚本
+`skills/seg-error-topology/scripts/error_topography.py`（CLI 配对清单 + 函数级 API
+供任务仓库在线推理包装 import）。参考实现 thymic_seg：val 42 例画像
+`src/error_topography_val.py`、稀疏标注三口径 `src/error_topography_evalp1.py`）。
 `skills/` 之外，本仓库自身的开发管理技能放 `.agents/skills/`（智能体自动发现路径）：**git-mgmt**（双远端布局——**origin=私有 GitLab，默认推送目标**；github=公有 GitHub 开源发布远端，仅当用户**当次明确指示**才允许推送，脚本层还需 `--publish` 双确认；未指明远端时一律推 origin，可以提醒用户"是否发布到 GitHub"但提醒不等于授权；含 conventional commits 中文提交规范、安装副本只拉不推、发布前泄露面扫描；status/push/add-github/check/validate 五个动作，validate 负责发布前插件清单与收录边界校验）。
 
 
