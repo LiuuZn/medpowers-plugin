@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
-"""exp_mgmt.py — 实验记录管理：编号分配、三时点状态机、git 自动提交、INDEX 生成、校验、旧格式迁移。
+"""exp_mgmt.py — 实验记录管理：编号分配、三时点状态机、git 自动提交与多机推送同步、INDEX 生成、校验、旧格式迁移。
 
-规范正本：docs/superpowers/specs/2026-10-13-exp-mgmt-design.md；
+规范正本：docs/superpowers/specs/2026-10-13-exp-mgmt-design.md（多机同步见 §13）；
 上下文：AGENTS.md「实验记录规范」、templates/runtime/README.md lease 协议。
-零第三方依赖。"""
+零第三方依赖。
+
+多机同步（拉取-确认-提交）：任务仓库远端是多台机器唯一的实验台账事实源。全部变更动作
+（new/start/finish/cancel/list/migrate）强制「fetch+快进拉取 → 在最新记录上确认编号与状态
+→ 提交后立即推送」；推送被拒 = 动作未完成（他机刚推送，可能撞号/撞状态），按报错恢复。
+远端不可达默认拒绝执行（--allow-offline 显式豁免）；分支无上游远端视为单机仓库，跳过同步。"""
 from __future__ import annotations
 
 import argparse
@@ -147,6 +152,92 @@ def commit_paths(repo: Path, message: str, *paths: Path) -> bool:
     return True
 
 
+GIT_NET_TIMEOUT = 30  # 秒；fetch/push 网络操作超时
+NO_UPSTREAM_HINT = "分支无上游远端，跳过同步（多机共享需先 `git push -u <远端> <分支>` 建立上游）"
+
+
+def upstream_of(repo: Path) -> tuple[str, str] | None:
+    """当前分支上游 (remote, branch)；无上游或 detached HEAD 返回 None（视为单机仓库）。"""
+    r = subprocess.run(["git", "-C", str(repo), "rev-parse", "--abbrev-ref",
+                        "--symbolic-full-name", "@{u}"], capture_output=True, text=True)
+    if r.returncode != 0:
+        return None
+    remote, _, branch = r.stdout.strip().partition("/")
+    return (remote, branch) if remote and branch else None
+
+
+def ahead_behind(repo: Path, ref: str) -> tuple[int, int]:
+    out = git(repo, "rev-list", "--left-right", "--count", f"HEAD...{ref}").split()
+    return int(out[0]), int(out[1])
+
+
+RECOVERY_RECIPE = ("恢复步骤：1) git pull --rebase；冲突时 git checkout --ours -- <文件>（rebase 中 --ours=远端侧），"
+                   "INDEX.md 取任意侧、恢复后用 list 重新生成；new 撞号则把自己的记录改名到下一个空闲编号（文件名+一级标题）；"
+                   "2) git add <记录目录>（须覆盖改名前后两个路径）&& git rebase --continue；3) 重新推送。")
+
+
+def require_syncable(repo: Path) -> None:
+    """rebase 恢复进行中时拒绝执行：HEAD 游离、上游不可解析，静默跳过同步会让本机台账悄悄脱队。"""
+    for name in ("rebase-merge", "rebase-apply"):
+        p = subprocess.run(["git", "-C", str(repo), "rev-parse", "--git-path", name],
+                           capture_output=True, text=True)
+        if p.returncode == 0 and p.stdout.strip() and Path(p.stdout.strip()).exists():
+            raise ExpError(f"检测到未完成的 rebase（{name} 存在），同步状态不可信，拒绝执行——"
+                           "先 `git rebase --continue`（冲突解决后 git add 记录目录）或 `git rebase --abort`，再重跑本动作")
+
+
+def sync_pull(repo: Path, allow_offline: bool = False) -> str:
+    """多机同步第一步「拉取」：fetch + 快进到上游，让编号/状态确认基于全仓库最新记录。"""
+    require_syncable(repo)
+    up = upstream_of(repo)
+    if not up:
+        return NO_UPSTREAM_HINT
+    remote, branch = up
+    ref = f"{remote}/{branch}"
+    try:
+        r = subprocess.run(["git", "-C", str(repo), "fetch", remote],
+                           capture_output=True, text=True, timeout=GIT_NET_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        r = None
+    if r is None or r.returncode != 0:
+        why = "fetch 超时" if r is None else (r.stderr.strip().splitlines() or ["fetch 失败"])[0]
+        if allow_offline:
+            return f"远端不可达（{why}），--allow-offline 按本地状态继续"
+        raise ExpError(f"无法从远端 {remote} 拉取最新记录（多台机器共用台账时必须先拉取再确认）：{why}\n"
+                       "网络恢复后重试；确要离线操作加 --allow-offline（撞号风险自担）")
+    ahead, behind = ahead_behind(repo, ref)
+    if ahead and behind:
+        raise ExpError(f"本地与 {ref} 分叉（本地多 {ahead} 个提交、远端多 {behind} 个），拒绝执行。{RECOVERY_RECIPE}")
+    if behind:
+        try:
+            git(repo, "merge", "--ff-only", ref)
+        except ExpError as e:
+            raise ExpError(f"快进到 {ref} 失败（常见原因：记录目录有未提交改动与远端改动相交，先以 exp(EXP-NNN): update 提交或 stash）\n{e}")
+        return f"已快进 {behind} 个提交（{ref}）"
+    return f"与 {ref} 一致"
+
+
+def sync_push(repo: Path, allow_offline: bool = False) -> str:
+    """多机同步第三步「推送」：提交后立即推送，他机才能看到本次占号/状态；推送被拒 = 动作未完成。"""
+    up = upstream_of(repo)
+    if not up:
+        return NO_UPSTREAM_HINT
+    if allow_offline:
+        return "离线模式：跳过推送——恢复网络后运行 check 并补推送，本次变更他机暂不可见"
+    remote, branch = up
+    try:
+        r = subprocess.run(["git", "-C", str(repo), "push", remote, f"HEAD:refs/heads/{branch}"],
+                           capture_output=True, text=True, timeout=GIT_NET_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        r = None
+    if r is None or r.returncode != 0:
+        why = "push 超时" if r is None else (r.stderr.strip() or "push 失败")
+        raise ExpError("推送未成功——本次变更只在本地，其他机器看不到，**动作未完成**；推送成功前不得做依赖本次时点的"
+                       "后续动作（start 后不得写 GPU lease；finish 后不得更新 versions.json）。\n"
+                       f"{RECOVERY_RECIPE}\n  git 输出：{why}")
+    return f"已推送到 {remote}/{branch}"
+
+
 def set_field(path: Path, field: str, value: str) -> None:
     text = path.read_text(encoding="utf-8")
     rx = FIELD_RES[field]
@@ -204,8 +295,9 @@ def append_cancel_reason(path: Path, reason: str) -> None:
 
 def cmd_new(args) -> int:
     exp_dir = resolve_dir(args)
-    repo = require_repo(exp_dir)
     exp_dir.mkdir(parents=True, exist_ok=True)
+    repo = require_repo(exp_dir)
+    print(f"[同步] {sync_pull(repo, args.allow_offline)}")
     records, old_format = scan_records(exp_dir)
     if old_format:
         names = "、".join(p.name for p in old_format)
@@ -224,6 +316,7 @@ def cmd_new(args) -> int:
     path.write_text(render_new_record(template, exp_id, slug), encoding="utf-8")
     refresh_index(exp_dir, records, parse_record(path))
     commit_paths(repo, f"exp({exp_id}): plan", exp_dir)
+    print(f"[同步] {sync_push(repo, args.allow_offline)}")
     print(f"{path.name} 已创建（planned）并提交。规划内容（任务与数据/配置）请尽快填入记录。")
     return 0
 
@@ -231,6 +324,7 @@ def cmd_new(args) -> int:
 def cmd_start(args) -> int:
     exp_dir = resolve_dir(args)
     repo = require_repo(exp_dir)
+    print(f"[同步] {sync_pull(repo, args.allow_offline)}")
     exp_id = normalize_id(args.exp)
     records, old_format = scan_records(exp_dir)
     if old_format:
@@ -244,6 +338,7 @@ def cmd_start(args) -> int:
     set_field(rec["path"], "started_at", now_iso())
     refresh_index(exp_dir, records, rec)
     commit_paths(repo, f"exp({exp_id}): start", exp_dir)
+    print(f"[同步] {sync_push(repo, args.allow_offline)}")
     print(f"{exp_id} → running。接下来按 lease 协议写 lease（experiment 字段引用 {exp_id}），再后台分离启动训练。")
     return 0
 
@@ -251,6 +346,7 @@ def cmd_start(args) -> int:
 def cmd_finish(args) -> int:
     exp_dir = resolve_dir(args)
     repo = require_repo(exp_dir)
+    print(f"[同步] {sync_pull(repo, args.allow_offline)}")
     exp_id = normalize_id(args.exp)
     if args.status not in ("done", "interrupted"):
         raise ExpError("--status 只接受 done 或 interrupted")
@@ -263,6 +359,7 @@ def cmd_finish(args) -> int:
     set_field(rec["path"], "ended_at", now_iso())
     refresh_index(exp_dir, records, rec)
     commit_paths(repo, f"exp({exp_id}): {args.status}", exp_dir)
+    print(f"[同步] {sync_push(repo, args.allow_offline)}")
     print(f"{exp_id} → {args.status}（ended_at 已填）。确认结果/诊断/下一轮决策/产物已填入记录。")
     return 0
 
@@ -270,6 +367,7 @@ def cmd_finish(args) -> int:
 def cmd_cancel(args) -> int:
     exp_dir = resolve_dir(args)
     repo = require_repo(exp_dir)
+    print(f"[同步] {sync_pull(repo, args.allow_offline)}")
     exp_id = normalize_id(args.exp)
     records, _ = scan_records(exp_dir)
     check_duplicates(records)
@@ -284,6 +382,7 @@ def cmd_cancel(args) -> int:
     append_cancel_reason(rec["path"], args.reason)
     refresh_index(exp_dir, records, rec)
     commit_paths(repo, f"exp({exp_id}): cancel", exp_dir)
+    print(f"[同步] {sync_push(repo, args.allow_offline)}")
     print(f"{exp_id} → cancelled。编号永久占用，不再复用。")
     return 0
 
@@ -325,6 +424,7 @@ def check_leases(runtime_dir: Path, records: list[dict]) -> list[str]:
 def cmd_list(args) -> int:
     exp_dir = resolve_dir(args)
     repo = require_repo(exp_dir)
+    print(f"[同步] {sync_pull(repo, args.allow_offline)}", file=sys.stderr)
     records, old_format = scan_records(exp_dir)
     check_duplicates(records)
     index = exp_dir / "INDEX.md"
@@ -332,6 +432,7 @@ def cmd_list(args) -> int:
     if not index.exists() or index.read_text(encoding="utf-8") != new_text:
         index.write_text(new_text, encoding="utf-8")
         commit_paths(repo, "exp: index 同步", exp_dir)
+    print(f"[同步] {sync_push(repo, args.allow_offline)}", file=sys.stderr)
     for r in sorted(records, key=lambda r: r["num"]):
         print(f"{r['id']}\t{r['status']}\t{r['slug']}\tplanned={_day(r['planned_at'])} "
               f"started={_day(r['started_at'])} ended={_day(r['ended_at'])}")
@@ -364,6 +465,17 @@ def cmd_check(args) -> int:
                             capture_output=True, text=True)
     if status.returncode == 0 and status.stdout.strip():
         warnings.append("记录目录存在未提交变更：git 管理要求不留存未提交记录")
+    up = upstream_of(repo)
+    if up:
+        ref = f"{up[0]}/{up[1]}"
+        probe = subprocess.run(["git", "-C", str(repo), "rev-parse", "--verify", "--quiet", ref],
+                               capture_output=True, text=True)
+        if probe.returncode == 0:
+            ahead, behind = ahead_behind(repo, ref)
+            if ahead:
+                warnings.append(f"本地有 {ahead} 个提交未推送：其他机器看不到这些变更（推送成功才算动作完成）")
+            if behind:
+                warnings.append(f"按上次 fetch，本地落后 {ref} {behind} 个提交：先拉取同步再安排训练")
     for w in warnings:
         print(f"警告：{w}", file=sys.stderr)
     if errors:
@@ -416,6 +528,7 @@ def _is_tracked(repo: Path, p: Path) -> bool:
 def cmd_migrate(args) -> int:
     exp_dir = resolve_dir(args)
     repo = require_repo(exp_dir)
+    print(f"[同步] {sync_pull(repo, args.allow_offline)}")
     records, old_format = scan_records(exp_dir)
     if not old_format:
         print("无旧格式记录，无需迁移")
@@ -506,6 +619,7 @@ def cmd_migrate(args) -> int:
     if versions_path is not None and versions_path.exists():
         commit_args.append(versions_path)
     commit_paths(*commit_args)
+    print(f"[同步] {sync_push(repo, args.allow_offline)}")
     for line in find_dangling_refs(dangling_texts, {p.name for p in exp_dir.glob("EXP-*.md")},
                                    migrated=set(mapping)):
         print(f"悬空引用：{line}", file=sys.stderr)
@@ -515,35 +629,45 @@ def cmd_migrate(args) -> int:
     return 0
 
 
+def _add_sync_flag(p) -> None:
+    p.add_argument("--allow-offline", action="store_true",
+                   help="远端不可达时仍按本地状态继续（跳过拉取与推送，撞号风险自担；恢复网络后请 check 并补推送）")
+
+
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description="实验记录管理（编号/状态机/git 提交/INDEX/校验/迁移）")
+    ap = argparse.ArgumentParser(description="实验记录管理（编号/状态机/git 提交与多机推送同步/INDEX/校验/迁移）")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     p = sub.add_parser("new", help="规划实验：分配编号建 planned 记录")
     p.add_argument("--dir", help="记录目录（默认 $MTSKILLS_EXPERIMENTS 或 ./experiments）")
     p.add_argument("--slug", required=True, help="短横线小写短语，如 unet3d-baseline")
     p.add_argument("--template", help="模板路径（默认插件 experiments/TEMPLATE.md）")
+    _add_sync_flag(p)
     p.set_defaults(fn=cmd_new)
 
     p = sub.add_parser("start", help="安排训练门禁：planned → running")
     p.add_argument("--dir", help="记录目录")
     p.add_argument("exp", help="实验编号，如 EXP-001")
+    _add_sync_flag(p)
     p.set_defaults(fn=cmd_start)
 
     p = sub.add_parser("finish", help="训练结束：running → done|interrupted")
     p.add_argument("--dir", help="记录目录")
     p.add_argument("exp", help="实验编号")
     p.add_argument("--status", required=True, choices=["done", "interrupted"])
+    _add_sync_flag(p)
     p.set_defaults(fn=cmd_finish)
 
     p = sub.add_parser("cancel", help="取消实验：planned|running → cancelled（编号不复用）")
     p.add_argument("--dir", help="记录目录")
     p.add_argument("exp", help="实验编号")
     p.add_argument("--reason", required=True, help="取消理由（写入记录）")
+    _add_sync_flag(p)
     p.set_defaults(fn=cmd_cancel)
 
     p = sub.add_parser("list", help="查询实验状态并重生成 INDEX.md")
     p.add_argument("--dir", help="记录目录")
+    _add_sync_flag(p)
     p.set_defaults(fn=cmd_list)
 
     p = sub.add_parser("check", help="只读校验：编号/状态/INDEX/lease 引用")
@@ -554,6 +678,7 @@ def main(argv=None) -> int:
     p = sub.add_parser("migrate", help="旧格式 EXP-YYYYMMDD-序号-slug 迁移为新编号")
     p.add_argument("--dir", help="记录目录")
     p.add_argument("--runtime", help="任务仓库 runtime 目录（改写 versions.json 引用、报告 lease 悬空引用）")
+    _add_sync_flag(p)
     p.set_defaults(fn=cmd_migrate)
 
     args = ap.parse_args(argv)

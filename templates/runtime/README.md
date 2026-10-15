@@ -31,7 +31,7 @@
 ## lease 协议（三步）
 
 1. **训练前**：读 `env.json` 确认目标卡 `available: true`；读 `training/` 下全部 lease；并用 `nvidia-smi` 实测。三者都满足才启动；任一不满足，换卡、等待或排队。
-2. **启动时**：写 lease **之前**先过技能 exp-mgmt 的 `start` 编号门禁（当轮实验记录应在规划时已由 `new` 建为 `planned`；start 校验编号唯一并转 `running`），再训练进程按上节「训练进程必须后台分离运行」以 `setsid`/`nohup`（或 tmux）与智能体会话分离启动；写自己的 lease 文件（原子写：先写 `<slug>.json.tmp` 再 `mv` 为 `<slug>.json`，防止别 agent 读到半个文件），lease 的 `experiment` 字段引用该 `EXP-<NNN>` 编号。
+2. **启动时**：写 lease **之前**先过技能 exp-mgmt 的 `start` 编号门禁（当轮实验记录应在规划时已由 `new` 建为 `planned`；start 校验编号唯一并转 `running`；start 自动与远端同步——拉取→确认→提交→推送，**推送成功才算过门禁**，多台机器共用任务仓库时以此防止重复启动同一实验），再训练进程按上节「训练进程必须后台分离运行」以 `setsid`/`nohup`（或 tmux）与智能体会话分离启动；写自己的 lease 文件（原子写：先写 `<slug>.json.tmp` 再 `mv` 为 `<slug>.json`，防止别 agent 读到半个文件），lease 的 `experiment` 字段引用该 `EXP-<NNN>` 编号。
 3. **结束时**：训练结束或中断，立即删除自己的 lease；补全实验记录，`status` 改 `done` / `interrupted`。
 
 ## lease 字段（JSON）
