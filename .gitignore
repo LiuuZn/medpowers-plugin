@@ -4,6 +4,8 @@ runtime/gpu/*.json.tmp
 runtime/training/*.json
 runtime/training/*.json.tmp
 runtime/*.json.tmp
+# notify 配置含 webhook URL（敏感 token）与加签密钥，绝不进 git
+runtime/notify.json
 # Python 缓存
 __pycache__/
 *.pyc
