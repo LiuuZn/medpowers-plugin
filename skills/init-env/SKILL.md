@@ -1,6 +1,6 @@
 ---
 name: init-env
-description: 初始化 MTSkills 运行环境：第一件事是任务画像问卷——询问用户目标、医疗影像模态、2D/2.5D/3D 建模维度、分割/分类/配准等任务类型，用户必须全部答复后才能继续任何后续步骤；随后查询 GPU 静态信息（显存总量）、询问用户哪些卡可用（默认全部可用）、检查 PyTorch + CUDA 张量训练环境（默认 uv 虚拟环境，不可用时经用户同意用 uv 初始化整套环境，用户也可指定系统或其他解释器），并把全部结果持久化到任务仓库工作区的 runtime/env.json。会话首次涉及训练、调优或资源调度时使用。
+description: 初始化 MTSkills 运行环境：第一件事是任务画像问卷——询问用户目标、医疗影像模态、2D/2.5D/3D 建模维度、分割/分类/配准等任务类型，用户必须全部答复后才能继续任何后续步骤；随后查询 GPU 静态信息（显存总量）、询问用户哪些卡可用（默认全部可用）、检查 PyTorch + CUDA 张量训练环境（默认 uv 虚拟环境，不可用时经用户同意用 uv 初始化整套环境，用户也可指定系统或其他解释器）、询问训练通知配置（本机名称与 webhook 链接，可不配置），并把全部结果持久化到任务仓库工作区的 runtime/env.json 与 runtime/notify.json。会话首次涉及训练、调优或资源调度时使用。
 ---
 
 # init-env — 初始化环境
@@ -9,7 +9,7 @@ description: 初始化 MTSkills 运行环境：第一件事是任务画像问卷
 
 **第 1 步是硬性门禁**：任务画像没有答复，后续步骤（GPU 清单、Python 环境、写入 env.json）一律不得开始——不知道任务是什么，选基础模型、推荐配置都无从谈起。
 
-## 流程（含三次用户交互）
+## 流程（含四次用户交互）
 
 ### 第 1 步：任务画像问卷（必须问、用户必须答；无默认值）
 
@@ -55,9 +55,28 @@ python3 skills/init-env/init_env.py gpu-static
    - 拒绝 → 如实记录 `status: "not-ready"` 与原因；
 4. 检查/初始化结果写入 env.json 的 `python_env`（`ready` / `not-ready`）。
 
-### 第 5 步：保存与汇报
+### 第 5 步：训练通知配置（必须问；用户可不配置，不配置则组件不生效）
 
-按下方 schema 组装完整内容（含 `task_profile`），管道交给 save 原子写入；save 会校验 `task_profile` 必填且非空，缺失即拒绝写入。最后向用户汇报：任务画像、可用卡、训练环境状态。
+用 AskUserQuestion 一次问 2 个问题：
+
+1. **机器名称**（header「机器名称」）："本机叫什么名字？（用于训练通知中标识这台机器）"
+   - 使用系统主机名（`<hostname>`，把实测值写在选项里）
+   - 不配置（通知组件不生效）
+   - 自定义名称在 Other 中填写
+2. **Webhook**（header「Webhook」）："是否提供 webhook 链接以启用训练通知？（训练开始/中断/结束时推送到 IM，至少支持飞书机器人）"
+   - 不提供（通知组件不生效）
+   - 提供飞书机器人 webhook——URL 在 Other 中粘贴；机器人若开了**加签校验**，密钥一并给出
+
+规则：
+
+- 两问任一为"不配置"→ `python3 skills/notify/notify.py disable --reason "用户在 init-env 选择不配置"`。组件从此不生效：之后所有 send 动作自动跳过（exit 0），**不要在别处反复追问用户要 webhook**。
+- 配置 → `python3 skills/notify/notify.py set --machine-name <名称> --url <URL> [--secret <密钥>]`，然后跑 `python3 skills/notify/notify.py test` 发测试消息，**请用户在 IM 里确认收到**才算配置完成。
+- 通知配置存 `runtime/notify.json`（不在 env.json），schema 见 `templates/runtime/notify.example.json`；webhook URL 含敏感 token，提示用户注意任务仓库的私有性。
+- 已有 `runtime/notify.json` 时，先 `notify.py status` 向用户展示现配置（已脱敏）：用户确认沿用则不动，要求修改才 set/disable——**不得静默覆盖**。
+
+### 第 6 步：保存与汇报
+
+按下方 schema 组装完整内容（含 `task_profile`），管道交给 save 原子写入；save 会校验 `task_profile` 必填且非空，缺失即拒绝写入。最后向用户汇报：任务画像、可用卡、训练环境状态、训练通知配置（已启用/未启用，已启用须确认测试消息送达）。
 
 ```
 <组装好的 JSON> | python3 skills/init-env/init_env.py save

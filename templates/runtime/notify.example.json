@@ -1,0 +1,11 @@
+{
+  "enabled": true,
+  "machine_name": "本机名称（用户在 init-env 问卷告知，通知中标识这台机器；不告知则整体不生效）",
+  "webhook": {
+    "type": "feishu",
+    "url": "https://open.feishu.cn/open-apis/bot/v2/hook/<token>（由技能 skills/notify 的 set 写入；URL 含敏感 token，入库前确认仓库私有性）",
+    "secret": "（可选）飞书机器人开启加签校验时才有的密钥，留空表示不加签"
+  },
+  "configured_at": "由 set 自动写入（ISO 8601）",
+  "disabled_reason": "（仅 enabled=false 时有意义）用户选择不配置或其他停用原因"
+}

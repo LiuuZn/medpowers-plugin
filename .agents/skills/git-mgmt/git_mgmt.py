@@ -44,8 +44,8 @@ LEAK_PATTERNS: list[tuple[str, str, bool]] = [
 
 # 插件名规范（Claude Code 插件约束：小写字母/数字开头，可含 . _ -，总长 ≤128）
 PLUGIN_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,127}$")
-# runtime 模板的 4 个固定文件（README + 3 个 example.json）
-RUNTIME_TEMPLATES = ("README.md", "data.example.json", "env.example.json", "versions.example.json")
+# runtime 模板的 5 个固定文件（README + 4 个 example.json）
+RUNTIME_TEMPLATES = ("README.md", "data.example.json", "env.example.json", "notify.example.json", "versions.example.json")
 
 
 def die(msg: str) -> None:
@@ -333,7 +333,7 @@ def cmd_validate() -> None:
     # 5) runtime 模板齐全
     rt = REPO / "templates" / "runtime"
     missing = [f for f in RUNTIME_TEMPLATES if not (rt / f).is_file()] if rt.is_dir() else list(RUNTIME_TEMPLATES)
-    record("templates/runtime/ 存在且 4 个文件齐全（README.md + 3 个 example.json）",
+    record("templates/runtime/ 存在且 5 个文件齐全（README.md + 4 个 example.json）",
            rt.is_dir() and not missing, "" if not missing else f"缺少：{'、'.join(missing)}")
 
     n_fail = sum(1 for _, ok, _ in results if not ok)

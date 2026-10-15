@@ -21,9 +21,9 @@ planned|running → cancelled（cancel：编号永久占用不复用）
 | 动作 | 命令 | 何时用 |
 |---|---|---|
 | new | `python3 skills/exp-mgmt/exp_mgmt.py new --dir <记录目录> --slug <短横线小写> [--template <路径>]` | 规划实验（下一轮决策产出即可规划，不必等训练排上），可用 `--template` 换模板。从模板建 planned 记录，提交 `exp(EXP-NNN): plan` |
-| start | `... start --dir <记录目录> EXP-001` | **安排训练、写 GPU lease 之前（强制门禁）**：校验编号唯一与 planned 状态，转 running。lease 的 `experiment` 字段引用该编号 |
-| finish | `... finish --dir <记录目录> EXP-001 --status done\|interrupted` | 训练结束/中断。先把结果/诊断/下一轮决策/产物写进记录，再调用（内容随本次提交入库） |
-| cancel | `... cancel --dir <记录目录> EXP-001 --reason "<理由>"` | 规划后决定不训，或训练中废弃 |
+| start | `... start --dir <记录目录> EXP-001` | **安排训练、写 GPU lease 之前（强制门禁）**：校验编号唯一与 planned 状态，转 running。lease 的 `experiment` 字段引用该编号。训练实际启动成功后用 skills/notify 发开始通知（纪律 7） |
+| finish | `... finish --dir <记录目录> EXP-001 --status done\|interrupted` | 训练结束/中断。先把结果/诊断/下一轮决策/产物写进记录，再调用（内容随本次提交入库），随后发通知（纪律 7） |
+| cancel | `... cancel --dir <记录目录> EXP-001 --reason "<理由>"` | 规划后决定不训，或训练中废弃。随后发通知（纪律 7） |
 | list | `... list --dir <记录目录>` | 查询实验状态；INDEX.md 有变化时重生成并提交 |
 | check | `... check --dir <记录目录> [--runtime <runtime目录>]` | 兜底校验：编号唯一、状态与时间字段一致、INDEX 一致、lease 引用存在且 running；旧格式与未提交变更给警告 |
 | migrate | `... migrate --dir <记录目录> [--runtime <runtime目录>]` | 旧格式 `EXP-YYYYMMDD-<序号>-<slug>` 重编号为 `EXP-001..N`、补齐 v2 时间字段（由文件名日期推导）、改写 versions.json 的 exp 引用、报告悬空引用 |
@@ -38,3 +38,4 @@ planned|running → cancelled（cancel：编号永久占用不复用）
 4. **提交由脚本完成**：不得绕过脚本手工 `git add -A`；脚本只对记录目录（migrate 另含 versions.json）做路径级 add。
 5. **编号不复用**：cancelled 的编号永久占用；分配一律走 `new`（扫描取 max+1，提交即占号），禁止手工挑号。
 6. **lease 与记录的衔接**：`start` 只做记录侧门禁，不写 lease；lease 按协议模板（`templates/runtime/README.md`）由训练启动流程写，顺序 = start 通过 → 写 lease → 三确认 → 后台分离启动。
+7. **通知触点**：训练生命周期时点经技能 skills/notify 推送 webhook（机器名称/GPU 编号/实验编号/操作说明；未配置时 send 自动跳过，不视为违规）——`start` 过门禁、lease 写入且训练后台分离启动成功后发 `--event start`（带 `--gpus`）；训练任何原因中断（崩溃/OOM/手动终止/stale lease 清理补发）发 `--event interrupt` 并写明原因；`finish --status done` 后发 `--event finish`；`finish --status interrupted` 后发 `--event interrupt`；`cancel` 后发 `--event cancel`。通知是尽力而为：失败重试 1 次后放弃，**不得用 `&&` 把 send 与本技能动作串联，更不得因通知失败回滚记录状态**。

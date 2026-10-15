@@ -65,7 +65,7 @@ python3 .agents/skills/git-mgmt/git_mgmt.py validate          # 发布前校验�
 - plugin name 匹配 `^[a-z0-9][a-z0-9._-]{0,127}$`；市场条目 name 与 plugin.json 一致；条目 source 为 `"./"` 且仓库根存在 `skills/`；
 - `skills/*/SKILL.md` frontmatter 含 name 与 description、name 与目录名一致、description 长度 ≤1024；
 - `git ls-files experiments/` 输出仅 `experiments/TEMPLATE.md`（实验记录归任务仓库，绝不进 git）；
-- `templates/runtime/` 存在且 4 个文件齐全（README.md + 3 个 example.json）。
+- `templates/runtime/` 存在且 5 个文件齐全（README.md + 4 个 example.json）。
 
 脚本为纯 python 自包含的启发式校验；末尾会提示可手动运行 `claude plugin validate .` 做官方清单校验。
 

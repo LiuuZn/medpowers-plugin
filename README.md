@@ -1,6 +1,6 @@
 # MTSkills — Medical Model Skill
 
-git 管理的方法论仓库，服务对象是医疗场景深度学习**小模型**的训练效率与收敛精度。**本仓库不承载训练**：训练在任务仓库（`/ssd/lx` 下各子项目）中进行；本仓库提供任务无关的知识资产（模型/预处理/目标函数）、"选模型 → 诊断训练状态 → 推荐下一轮配置"的方法论、技能（init-env / data-mgmt / exp-mgmt / self-update / badcase-analysis / seg-error-topology）与实验记录规范（EXP-<NNN> 全局编号、三时点、任务仓库 git 管理，由 exp-mgmt 技能兜底）。
+git 管理的方法论仓库，服务对象是医疗场景深度学习**小模型**的训练效率与收敛精度。**本仓库不承载训练**：训练在任务仓库（`/ssd/lx` 下各子项目）中进行；本仓库提供任务无关的知识资产（模型/预处理/目标函数）、"选模型 → 诊断训练状态 → 推荐下一轮配置"的方法论、技能（init-env / data-mgmt / exp-mgmt / self-update / badcase-analysis / seg-error-topology / notify）与实验记录规范（EXP-<NNN> 全局编号、三时点、任务仓库 git 管理，由 exp-mgmt 技能兜底）。
 本仓库自身的开发管理技能（双远端 git 规范）单独放 `.agents/skills/git-mgmt/`。
 
 **智能体必读 [AGENTS.md](AGENTS.md)**（仓库定位、目录结构、实验记录与资源调度协议）；人类读者可从 `methods/` 入门。

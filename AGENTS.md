@@ -27,7 +27,8 @@ mtskills/
 │   ├── exp-mgmt/            # ③ 实验记录管理：全局唯一编号（EXP-001 起递增）+ planned→running→done/interrupted(+cancelled) 三时点状态机 + git 自动提交 + INDEX 自动生成 + 编号/lease 校验 + 旧格式迁移（new/start/finish/cancel/list/check/migrate）
 │   ├── self-update/         # ④ 自更新：git 拉取最新主分支（只快进；runtime 外改动拒绝更新；仅服务 git 安装副本）
 │   ├── badcase-analysis/   # ⑤ bad case 定位范式+错误案例分析包：定位分层→溯源→重建→遴选→渲染→打包
-│   └── seg-error-topology/ # ⑥ 分割误差空间分布画像：FP/FN 按 GT 归一化相对坐标沿各轴分箱（端部/偏向/外溢/局部漏检率）
+│   ├── seg-error-topology/ # ⑥ 分割误差空间分布画像：FP/FN 按 GT 归一化相对坐标沿各轴分箱（端部/偏向/外溢/局部漏检率）
+│   └── notify/             # ⑦ 训练通知组件：webhook（至少飞书机器人，可选加签）推送训练开始/任何原因中断/结束/取消提醒（机器名/GPU/操作信息）；init-env 问卷配置，用户不告知则不生效
 ├── hooks/                   # 插件 hook：SessionStart 注入方法论红线摘要（可视化红线/实验记录三时点（git 管理）/lease 三确认/训练后台分离）
 ├── templates/runtime/       # 任务仓库 <工作区>/runtime/ 的协议模板（README + 各 *.example.json，init-env 初始化时拷入）
 ├── .claude-plugin/          # 插件与市场清单（仓库即市场；plugin.json 的 version 是唯一事实源，发版纪律见 README.md）
@@ -61,6 +62,15 @@ spacing + 任务仓库几何核验的轴方向语义；纯掩码程序化测量�
 `skills/seg-error-topology/scripts/error_topography.py`（CLI 配对清单 + 函数级 API
 供任务仓库在线推理包装 import）。参考实现 thymic_seg：val 42 例画像
 `src/error_topography_val.py`、稀疏标注三口径 `src/error_topography_evalp1.py`）。
+**notify**（训练通知组件：经 webhook 推送训练生命周期提醒——**训练开始、任何原因中断、
+结束/取消**，至少支持飞书机器人（可选加签校验），另有 generic 类型 POST 扁平 JSON；
+内容含机器名称、GPU 编号、实验编号与操作说明；配置由 init-env 问卷采集（用户告知
+机器名称与 webhook 链接，写入 `<工作区>/runtime/notify.json`），**用户不告知则组件
+不生效**（send 自动跳过 exit 0，不报错不追问）；set/disable/status/send/test 五动作 +
+`send_notification` 函数级 API（绝不抛异常）；发送时机与 exp-mgmt/lease 协议对齐
+（启动成功后 start、任何中断含 stale lease 清理补发 interrupt、finish done/interrupted、
+cancel）；**尽力而为**——失败重试 1 次后放弃，不得与训练启动/finish 用 `&&` 串联，
+绝不阻断训练与实验记录动作；webhook URL 含敏感 token，不写入实验记录与提交信息）。
 `skills/` 之外，本仓库自身的开发管理技能放 `.agents/skills/`（智能体自动发现路径）：**git-mgmt**（双远端布局——**origin=私有 GitLab，默认推送目标**；github=公有 GitHub 开源发布远端，仅当用户**当次明确指示**才允许推送，脚本层还需 `--publish` 双确认；未指明远端时一律推 origin，可以提醒用户"是否发布到 GitHub"但提醒不等于授权；含 conventional commits 中文提交规范、安装副本只拉不推、发布前泄露面扫描；status/push/add-github/check/validate 五个动作，validate 负责发布前插件清单与收录边界校验）。
 
 
@@ -92,6 +102,7 @@ spacing + 任务仓库几何核验的轴方向语义；纯掩码程序化测量�
 - 目的：给所有智能体提供"哪些任务正在训练、占用哪张卡多少显存"的上下文，避免撞卡。哪些卡归本训练目录可用，以任务仓库 `<工作区>/runtime/env.json`（初始化时用户答复的记录）为准。
 - 协议三步：**训练前**读任务仓库 `<工作区>/runtime/training/` 全部 lease 并用 `nvidia-smi` 实测（快照不能替代实测），三确认（env.json 可用性 + 无冲突 lease + 实测空闲）都满足才启动；**启动时**训练进程必须后台分离启动（`setsid`/`nohup`/tmux 脱离智能体会话，会话终止不得连带杀掉训练；lease 的 pid 记分离后真实训练进程，日志重定向到文件），并原子写一个 lease JSON（任务、GPU、pid、起止时间、日志位置）到 `<工作区>/runtime/training/`；**结束时**立即删除自己的 lease。
 - lease 是声明式参考，不是硬锁；真实占用以 `nvidia-smi` 为准。stale lease（进程已不存在）核对 pid 后可直接清理。只有训练和长时间占 GPU 的任务需要登记，短时推理不必。
+- 训练开始/任何原因中断/结束时经技能 **notify**（`skills/notify/`）推送 webhook 提醒（机器名/GPU/操作信息；配置在 `<工作区>/runtime/notify.json`，用户未配置则自动跳过；尽力而为，绝不阻断训练动作）。
 
 ## 资产收录边界
 
