@@ -29,7 +29,7 @@ mtskills/
 │   ├── badcase-analysis/   # ⑤ bad case 定位范式+错误案例分析包：定位分层→溯源→重建→遴选→渲染→打包
 │   ├── seg-error-topology/ # ⑥ 分割误差空间分布画像：FP/FN 按 GT 归一化相对坐标沿各轴分箱（端部/偏向/外溢/局部漏检率）
 │   └── notify/             # ⑦ 训练通知组件：webhook（至少飞书机器人，可选加签）推送训练开始/任何原因中断/结束/取消提醒（机器名/GPU/操作信息）；init-env 问卷配置，用户不告知则不生效
-├── hooks/                   # 插件 hook：SessionStart 注入方法论红线摘要（可视化红线/实验记录三时点（git 管理）/lease 三确认/训练后台分离）
+├── hooks/                   # 插件 hook：SessionStart 注入方法论红线摘要（可视化红线/实验记录三时点（git 管理）/lease 三确认/训练后台分离）+ 自查插件下载日期（安装根目录 mtime），超一周未更新时注入"每次回复末尾友好提醒检查更新"的会话级指令（尽力而为，任何取值失败静默跳过）
 ├── templates/runtime/       # 任务仓库 <工作区>/runtime/ 的协议模板（README + 各 *.example.json，init-env 初始化时拷入）
 ├── .claude-plugin/          # 插件与市场清单（仓库即市场；plugin.json 的 version 是唯一事实源，发版纪律见 README.md）
 │   ├── plugin.json
