@@ -8,7 +8,7 @@
 
 - `env.json`：**初始化结果**（由技能 `skills/init-env` 写入）：任务画像（目标、影像模态、2D/2.5D/3D 维度、任务类型——**用户必答的问卷结果**，未答复不得完成初始化）、GPU 静态清单（index/name/显存总量）、每张卡是否归本训练目录可用（用户答复或默认全部可用）、Python 训练环境状态（PyTorch + CUDA 张量是否验证通过、解释器位置）。由任务仓库自行决定是否纳入其 git 管理，是训练环境与任务画像的单一事实源。
 - `data.json`：**数据管理状态**（由技能 `skills/data-mgmt` 写入）：`data_root`（数据统一根目录，默认任务仓库工作区下的 `<工作区>/data`，用户可改，答复原文随记）+ 全部数据集的登记表（路径/任务类型/维度/recipes）。任务仓库通过此表引用数据，**不复制数据**。由任务仓库自行决定是否纳入其 git 管理。
-- `notify.json`：**训练通知配置**（由技能 `skills/notify` 写入）：`enabled`、`machine_name`（通知中标识本机的名称，用户在 init-env 问卷告知）、`webhook{type,url,secret}`（至少支持飞书机器人，可选加签密钥）。**文件不存在或 `enabled=false` 时通知组件不生效**——所有 send 动作自动跳过且不报错。webhook URL 含敏感 token，是否纳入任务仓库 git 由任务仓库自行决定。
+- `notify.json`：**训练通知配置**（由技能 `skills/notify` 写入）：`enabled`、`machine_name`（这台机器的名称，用户在 init-env 问卷告知；既用于通知文案，也是实验记录与 lease 中机器指代的正名来源）、`webhook{type,url,secret}`（至少支持飞书机器人，可选加签密钥）。**文件不存在或 `enabled=false` 时通知组件不生效**——所有 send 动作自动跳过且不报错。webhook URL 含敏感 token，是否纳入任务仓库 git 由任务仓库自行决定。
 - `gpu/`：预留。动态 GPU 信息（利用率/温度/进程等）不持久化，需要时实时 `nvidia-smi`。
 - `versions.json`：**版本指针**。具名版本（baseline/sota/current 等）→ EXP 编号（格式 `EXP-<NNN>`，与实验记录编号一致）、任务仓库、checkpoint 路径、指标、配置文档路径；「回滚到基线/切到 sota」即读此文件。
 - `training/`：**训练信息**。每个进行中的训练任务一个 lease JSON，文件名用任务 slug（如 `bc3seg-abdomen-unet3.json`）。
@@ -28,11 +28,14 @@
 - 智能体不持有训练进程，只通过**轮询日志尾部、lease 与 `nvidia-smi`** 跟踪进度；智能体会话中途退出，训练必须照常继续，事后凭 lease + 实验记录占位接手；
 - 启动后立即 `ps -p <pid>` 确认进程存活、日志文件在增长，才算启动成功。
 
-## lease 协议（三步）
+## lease 协议（三步，全接管模式）
 
-1. **训练前**：读 `env.json` 确认目标卡 `available: true`；读 `training/` 下全部 lease；并用 `nvidia-smi` 实测。三者都满足才启动；任一不满足，换卡、等待或排队。
-2. **启动时**：写 lease **之前**先过技能 exp-mgmt 的 `start` 编号门禁（当轮实验记录应在规划时已由 `new` 建为 `planned`；start 校验编号唯一并转 `running`；start 自动与远端同步——拉取→确认→提交→推送，**推送成功才算过门禁**，多台机器共用任务仓库时以此防止重复启动同一实验），再训练进程按上节「训练进程必须后台分离运行」以 `setsid`/`nohup`（或 tmux）与智能体会话分离启动；写自己的 lease 文件（原子写：先写 `<slug>.json.tmp` 再 `mv` 为 `<slug>.json`，防止别 agent 读到半个文件），lease 的 `experiment` 字段引用该 `EXP-<NNN>` 编号。
-3. **结束时**：训练结束或中断，立即删除自己的 lease；补全实验记录，`status` 改 `done` / `interrupted`。
+1. **训练前（智能体）**：读 `env.json` 确认目标卡 `available: true`；读 `training/` 下全部 lease；并用 `nvidia-smi` 实测。三者都满足才启动；任一不满足，换卡、等待或排队。同时**确认训练入口已内嵌 `medpowers.training_session`**（包由 init-env 装进任务仓库训练环境；训练框架 `from medpowers import training_session` 包住训练主流程即可）。
+2. **启动时（训练进程，经 medpowers 包）**：智能体按上节「训练进程必须后台分离运行」以 `setsid`/`nohup`（或 tmux）与智能体会话分离启动训练；训练进程入口处 `training_session` 先过 **start 编号门禁**（当轮实验记录应在规划时已由 `new` 建为 `planned`；门禁校验编号唯一并转 `running`，自动与远端同步——拉取→确认→提交→推送，**推送成功才算过门禁**，多台机器共用任务仓库时以此防止重复启动同一实验；**门禁失败训练进程自行退出，训练不开始**），随后原子写自己的 lease 文件（先写 `<slug>.json.tmp` 再 `mv` 为 `<slug>.json`，防止别 agent 读到半个文件）——lease 的 `experiment` 字段引用该 `EXP-<NNN>` 编号，`machine` 字段填 `notify.json` 的 `machine_name`，`pid` 即**分离后真实训练进程自身**，实验记录同步落 `machine`/`gpus` 结构化字段。
+3. **结束时（训练进程，经包）**：finish 落账（`status` 改 `done` / `interrupted`，指标/产物/时长/中断原因自动入账；诊断与下一轮决策由智能体随后补写）后**立即删除自己的 lease**。
+
+> exp-mgmt CLI 的 `start`/`finish` 是训练代码未集成包时的**遗留兜底**（智能体在启动前/收尾后代跑门禁与落账）；正路是本节的全接管链路。
+> 注（多机）：lease 与本文件只反映**本机**。哪些实验在整个项目里处于 running，跨机唯一事实源是任务仓库 git 的实验台账（exp-mgmt）——**查询/汇报训练与实验状态（"哪些在跑/可以进行/进展如何"）前，先拉取最新主分支**（fetch+快进）；本地台账滞后时，他机已启动的实验会被误报为 planned。
 
 ## lease 字段（JSON）
 
@@ -41,6 +44,7 @@
   "task": "任务一句话描述",
   "repo": "实际训练发生的仓库路径",
   "experiment": "对应的 EXP-<NNN> 编号（若有）",
+  "machine": "执行训练的机器名（notify.json 的 machine_name；未配置时用 hostname 输出）",
   "agent": "哪个智能体/会话在跑",
   "pid": 12345,
   "gpus": [0],
@@ -52,18 +56,21 @@
 }
 ```
 
+**机器指代用配置名，禁称"本机"**：lease、实验记录与 exp 提交信息是**多机共读**的共享台账，提到训练在哪台机器执行时一律用 `notify.json` 的 `machine_name` 值称呼（如"机器A 的 GPU 0"），禁止"本机"字样——他机读者无法分辨"本机"指哪台。
+
 ## 训练通知（webhook，尽力而为）
 
 训练生命周期的关键时点经技能 `skills/notify` 推送 webhook 提醒（至少支持飞书），让用户不必盯着智能体会话也能掌握训练动态：
 
-- **发送时机**：训练开始（lease 写入且训练后台分离启动成功后）、任何原因中断（崩溃、OOM、手动终止、发现进程消失、下节 stale lease 清理时补发）、训练结束（`done` / `interrupted`）、实验取消；
+- **发送主体是训练进程本体（经 medpowers 包）**：全接管正路是 `training_session`（start 门禁→lease→`start` 通知→训练→finish 落账→删 lease→`finish`/`interrupt` 通知一体完成）；纯通知场景用 `training_lifecycle` 上下文管理器包住训练主流程——进入发 `start`、正常走完发 `finish`、任何异常或 SIGTERM/SIGINT 发 `interrupt`（写明原因）后训练行为零改变（异常照常上抛、信号按默认语义终止）；智能体在准备/修改训练入口时确认这层包裹存在，**不代发**这三个信号；
+- **智能体仅存两个发送点**：实验取消（exp-mgmt `cancel` 之后，训练进程不参与取消）；stale lease 清理兜底——进程被 SIGKILL/OOM-killer/断电等**无法自报**的终止时补发 `interrupt`；
 - **内容**：机器名称（`notify.json` 的 `machine_name`）、GPU 编号、实验编号（EXP-<NNN>）与操作说明（中断必须写明原因）；
-- **尽力而为**：通知失败重试 1 次后放弃，**绝不阻断、不回滚训练与实验记录动作**；不得用 `&&` 把通知与训练启动/finish 串联；
-- **未配置不生效**：用户未告知机器名称或 webhook 时（文件不存在或 `enabled=false`），发送动作自动跳过，不报错、不追问。
+- **尽力而为**：通知失败重试 1 次后放弃（短超时），**绝不影响训练、绝不阻断、不回滚实验记录动作**；训练进程内 runtime 解析为 `$MEDPOWERS_RUNTIME` > 从 cwd 向上找工作区 `runtime/`，故训练进程的 cwd 须在任务仓库工作区内；
+- **未配置不生效**：用户未告知机器名称或 webhook 时（文件不存在或 `enabled=false`），发送自动跳过，不报错、不追问。
 
 ## stale lease 清理
 
-文件还在但训练早已不在（机器重启、进程被杀）：核对 `pid` 与 `started` 时间，确认进程不存在后可直接删除该 lease，无需询问。清理动作在当轮实验记录（或下一条记录的 notes）里提一句；若通知组件已配置（`notify.json`），同时补发一条 `interrupt` 通知（`--note "stale lease 清理：进程已不存在"`），让用户知道训练早已中断。
+文件还在但训练早已不在（机器重启、进程被杀）：核对 `pid` 与 `started` 时间，确认进程不存在后可直接删除该 lease，无需询问。清理动作在当轮实验记录（或下一条记录的 notes）里提一句；若通知组件已配置（`notify.json`），同时补发一条 `interrupt` 通知（`--note "stale lease 清理：进程已不存在"`），让用户知道训练早已中断——这是 SIGKILL/断电等训练代码**无法自报**的终止的唯一通知兜底；可自报的中断训练进程已由内嵌钩子自己发过 `interrupt`，核对训练日志确认已发过就不要重复补发。
 
 ## 边界
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""git_mgmt.py — git-mgmt 技能脚本：mtskills 仓库自身的双远端状态概览与安全推送。
+"""git_mgmt.py — git-mgmt 技能脚本：medpowers 仓库自身的双远端状态概览与安全推送。
 
 定位：放在 .agents/skills/（ZCode 等智能体的自动发现路径），面向本仓库自身的开发管理，
 不随 skills/ 分发给训练仓库当算法开发技能用（安装副本只拉不推）。
@@ -8,7 +8,7 @@
   origin  私有 GitLab —— 日常开发远端，默认推送/拉取目标；
   github  公有 GitHub —— 开源发布远端，必须用户当次明确指示（脚本层还要 --publish 双确认）才允许推送。
 
-用法（在 mtskills 仓库任一副本内执行）：
+用法（在 medpowers 仓库任一副本内执行）：
   python3 .agents/skills/git-mgmt/git_mgmt.py status
   python3 .agents/skills/git-mgmt/git_mgmt.py push [--remote origin|github] [--publish] [--dry-run]
   python3 .agents/skills/git-mgmt/git_mgmt.py add-github --url <URL> [--force]
@@ -18,7 +18,7 @@
 安全设计：
   1) push 默认只认 origin；--remote github 不带 --publish 直接拒绝（双确认）；
   2) 不提供任何 force 选项，绝不改写远端历史；
-  3) 安装副本（训练仓库 .agents/mtskills）只拉不推，检测到安装形态即拒绝 push；
+  3) 安装副本（训练仓库 .agents/medpowers）只拉不推，检测到安装形态即拒绝 push；
   4) 推 github 前自动跑泄露面扫描（启发式），把发现摆在明面上再动手。
 """
 from __future__ import annotations
@@ -72,8 +72,8 @@ def is_installed_copy() -> str | None:
     sp = git("rev-parse", "--show-superproject-working-tree", check=False).stdout.strip()
     if sp:
         return f"submodule，隶属 {sp}"
-    if REPO.name == "mtskills" and REPO.parent.name == ".agents":
-        return "嵌套 clone（<训练仓库>/.agents/mtskills）"
+    if REPO.name == "medpowers" and REPO.parent.name == ".agents":
+        return "嵌套 clone（<训练仓库>/.agents/medpowers）"
     return None
 
 

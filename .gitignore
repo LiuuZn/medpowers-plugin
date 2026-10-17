@@ -9,6 +9,11 @@ runtime/notify.json
 # Python 缓存
 __pycache__/
 *.pyc
+# Python 包构建产物（仓库根被 uv add / pip install 就地构建时产生）
+dist/
+*.egg-info/
+# ZCode 会话工具目录
+.zcode/
 
 # SDD 脚手架（superpowers subagent-driven-development 账本与简报）
 .superpowers/

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""self_update.py — 拉取本仓库（mtskills）最新主分支，更新脚本所在的副本。
+"""self_update.py — 拉取本仓库（medpowers）最新主分支，更新脚本所在的副本。
 
 自动定位自身所在仓库根（与 cwd 无关），安全策略：
   1) 只快进（--ff-only），绝不合并/rebase；
@@ -89,12 +89,12 @@ def main() -> None:
             print(f"       {line}")
 
     # 安装形态提示：submodule 用 git 原生检测；嵌套 clone 看 .agents 布局启发式
-    # （源仓库 /ssd/lx/mtskills 虽身处 /ssd/lx 大仓库工作区内，但既非 submodule 也非 .agents 安装，保持沉默）
+    # （源仓库 /ssd/lx/medpowers 虽身处 /ssd/lx 大仓库工作区内，但既非 submodule 也非 .agents 安装，保持沉默）
     sp = git("rev-parse", "--show-superproject-working-tree").stdout.strip()
     if sp:
         print(f"[INFO] 本副本是 {sp} 的 submodule：请在训练仓库 commit 子模块指针")
     elif REPO.parent.name == ".agents" and (REPO.parent.parent / ".git").exists():
-        print("[INFO] 本副本为 .agents/ 下的嵌套 clone：训练仓库无需动作（确认 .gitignore 已含 .agents/mtskills/）")
+        print("[INFO] 本副本为 .agents/ 下的嵌套 clone：训练仓库无需动作（确认 .gitignore 已含 .agents/medpowers/）")
 
 
 if __name__ == "__main__":

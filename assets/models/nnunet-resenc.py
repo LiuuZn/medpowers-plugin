@@ -28,7 +28,11 @@
   architectures/unet.py:111、building_blocks/residual_encoders.py:13、
   building_blocks/residual.py:13（BasicBlockD）、building_blocks/unet_decoder.py:14）。
 - 编码器：stem（1 个 3×3×3 卷积 + IN + LeakyReLU，步长 1）+ n_stages 个残差级；每级
-  n_blocks_per_stage（nnU-Net 规划默认 2）个 ResNet-D 式残差块（论文称 residual encoder；
+  n_blocks_per_stage 个 ResNet-D 式残差块（论文称 residual encoder；块数口径——构造
+  默认 2 是 dynamic_network_architectures 的 ResidualEncoder 默认值，而 nnU-Net ResEnc
+  预设实际用**固定常数序列 (1,3,4,6,6,6,…)**（M/L/XL 共用，nnunetv2
+  resencUNet_planner.py 的 UNet_blocks_per_stage_encoder），复现预设时应显式传入该
+  序列——同 features 下参数量约为每级 2 块的 2.4 倍，见资产卡"量级"）；
   ResNet-D 出自 He et al., "Bag of Tricks for Image Classification with Convolutional
   Neural Networks", CVPR 2019——官方代码注释注明遵循该设计）：主路 conv1（步长 s）→IN→
   LeakyReLU→conv2→IN，短路路 avgpool(s)→1×1×1 卷积→IN（仅在需要降采样/升通道时），
@@ -43,7 +47,8 @@
   数据集 spacing 自动算 patch/池化（可各向异性）/通道/批大小，并取消"单批不超过数据集
   0.05"的旧上限（官方文档）。本文件的 TYPICAL_3D_FULLRES_CONFIG 是 planner 文档字符串里
   给出的典型 3D fullres 规划结果（6 级、(32,64,128,256,320,320)、每级 2 块、步长
-  (1,2,2,2,2,2)、解码每级 1 卷积），仅作示例——完整增益依赖 nnU-Net 框架（预处理、增广、
+  (1,2,2,2,2,2)、解码每级 1 卷积），仅作示例（块数 2 是官方文档示例的取值，非预设常数，
+  见上）；完整增益依赖 nnU-Net 框架（预处理、增广、
   训练配方、滑窗推理），不要用单网络复刻冒充 ResEnc-L 基线。
 - 初始化：He 正态（kaiming_normal_，a=1e-2，LeakyReLU 斜率匹配；偏置置 0）+ 残差相加前
   最后一个 norm 的仿射权重置 0（对应官方 ResidualEncoderUNet.initialize 的
@@ -225,7 +230,8 @@ class ResidualEncoder3D(nn.Module):
         kernel_sizes: 每级卷积核大小，标量广播或长度 n_stages。
         strides: 每级步长（降采样倍率），标量广播或长度 n_stages；第一级应为 1（降采样
             放在级间，与 nnU-Net 规划一致）。
-        n_blocks_per_stage: 每级残差块数（nnU-Net 规划为 2），标量广播或长度 n_stages。
+        n_blocks_per_stage: 每级残差块数（默认 2 = 官方库默认值；nnU-Net ResEnc 预设
+            固定序列 (1,3,4,6,6,6)，复现预设时按级显式传入），标量广播或长度 n_stages。
     """
 
     def __init__(

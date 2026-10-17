@@ -11,7 +11,7 @@ description: 数据管理：统一规定训练数据的位置与格式，提供�
 
 ## 数据放哪（默认值可改）
 
-- 默认根目录 **`<工作区>/data/`**（工作区 = 从执行目录向上最近的含 `.git` 祖先，与脚本 `resolve_runtime` 的解析一致；`MTSKILLS_RUNTIME` 环境变量可显式指定 runtime 目录），一个数据集一个子目录（如 `<工作区>/data/lung_seg/`）。
+- 默认根目录 **`<工作区>/data/`**（工作区 = 从执行目录向上最近的含 `.git` 祖先，与脚本 `resolve_runtime` 的解析一致；`MEDPOWERS_RUNTIME` 环境变量可显式指定 runtime 目录），一个数据集一个子目录（如 `<工作区>/data/lung_seg/`）。
 - 事实源是任务仓库工作区的 `runtime/data.json`：
   - `data_root`：根目录 + 用户答复记录（`source: user/default`）。本技能首次运行发现未设定时，用 AskUserQuestion 问用户"数据统一放哪？"（说明默认 `<工作区>/data`），答复后 `set-root` 写入并记答复原文；**不得静默假设或丢失用户答复**。
   - `datasets`：全局登记表。任务仓库**永不复制数据**，凭这里的路径引用（单一正本原则）。

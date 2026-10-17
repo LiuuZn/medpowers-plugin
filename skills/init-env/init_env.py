@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""MTSkills init-env 技能脚本：GPU 静态清单 / Python 训练环境检查 / uv 初始化 / 记录保存。
+"""MedPowers init-env 技能脚本：GPU 静态清单 / Python 训练环境检查 / uv 初始化 / 记录保存。
 
 子命令：
     gpu-static                  查询 GPU 静态信息（index/name/显存总量）→ JSON
@@ -13,7 +13,7 @@
 初始化只查静态信息；利用率/温度/进程等动态信息不在本技能范围，需要时实时 nvidia-smi。
 仅用标准库。
 
-状态写入位置：runtime 目录解析优先级为环境变量 MTSKILLS_RUNTIME（直接指向 runtime
+状态写入位置：runtime 目录解析优先级为环境变量 MEDPOWERS_RUNTIME（直接指向 runtime
 目录）> 任务仓库工作区（cwd 向上最近含 .git 的祖先）下的 runtime/。插件根（脚本
 parents[2]）仅用于读取仓库自带资源（模板等），不承载任何状态写入。
 """
@@ -40,9 +40,9 @@ def workspace_root() -> Path:
 
 
 def resolve_runtime() -> Path:
-    """runtime 状态目录：环境变量 MTSKILLS_RUNTIME（直接指向 runtime 目录）最高；
+    """runtime 状态目录：环境变量 MEDPOWERS_RUNTIME（直接指向 runtime 目录）最高；
     否则 <工作区根>/runtime。"""
-    env = os.environ.get("MTSKILLS_RUNTIME", "").strip()
+    env = os.environ.get("MEDPOWERS_RUNTIME", "").strip()
     if env:
         return Path(env).expanduser().resolve()
     return workspace_root() / "runtime"
@@ -152,8 +152,8 @@ def cmd_init_uv(args):
     pyproject = WORKSPACE / "pyproject.toml"
     if not pyproject.exists():
         pyproject.write_text(
-            '[project]\nname = "mtskills-env"\nversion = "0.1.0"\n'
-            'description = "MTSkills 共享训练环境（由 skills/init-env 初始化）"\n'
+            '[project]\nname = "medpowers-env"\nversion = "0.1.0"\n'
+            'description = "MedPowers 共享训练环境（由 skills/init-env 初始化）"\n'
             'requires-python = ">=3.11"\ndependencies = []\n'
             "\n[[tool.uv.index]]\n"
             f'url = "{index}"\n'
@@ -200,7 +200,7 @@ def cmd_save(_args):
 
 
 def main():
-    p = argparse.ArgumentParser(description="MTSkills 初始化环境工具（详见 skills/init-env/SKILL.md）")
+    p = argparse.ArgumentParser(description="MedPowers 初始化环境工具（详见 skills/init-env/SKILL.md）")
     sub = p.add_subparsers(dest="cmd", required=True)
     sub.add_parser("gpu-static", help="查询 GPU 静态信息（index/name/显存总量）")
     cp = sub.add_parser("check-python", help="检查 PyTorch + CUDA 张量可用性")

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""notify.py 的测试：临时 runtime fixture + 本地 HTTP webhook 接收端。
-运行：python3 skills/notify/test_notify.py -v"""
+"""medpowers.notify 的测试：临时 runtime fixture + 本地 HTTP webhook 接收端。
+运行（仓库根）：python3 -m unittest discover -s medpowers/tests -t ."""
 import base64
 import hashlib
 import hmac
@@ -13,12 +13,13 @@ import unittest
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import notify  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from medpowers import notify  # noqa: E402
 
 
 class HookHandler(BaseHTTPRequestHandler):
     """本地 webhook 接收端：记录请求体，behavior() 决定响应。"""
+
     records: list[dict] = []
     status = 200
     body = '{"code":0,"msg":"success"}'
@@ -44,6 +45,7 @@ class NotifyTest(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp(prefix="notify-test-"))
         self.runtime = self.tmp / "runtime"
         HookHandler.records = []
+        HookHandler.behavior()  # 复位上一个测试改过的响应行为（类状态会跨测试泄漏）
         self.server = HTTPServer(("127.0.0.1", 0), HookHandler)
         self.port = self.server.server_address[1]
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
@@ -220,6 +222,93 @@ class NotifyTest(unittest.TestCase):
         line = notify.render_lines("lx-4090", "0（RTX 4090）", "EXP-001", "原因 X", bold=False)
         for frag in ("机器：lx-4090", "GPU：0（RTX 4090）", "实验：EXP-001", "说明：原因 X"):
             self.assertIn(frag, line)
+
+    # ---------- 训练代码内嵌生命周期（training_lifecycle） ----------
+
+    def _configure(self):
+        notify.main(["set", "--machine-name", "lx-4090", "--url",
+                     f"http://127.0.0.1:{self.port}/hook", "--runtime", str(self.runtime)])
+
+    def _wait_records(self, n, timeout=10.0):
+        import time
+        deadline = time.monotonic() + timeout
+        while len(HookHandler.records) < n and time.monotonic() < deadline:
+            time.sleep(0.05)
+        self.assertGreaterEqual(len(HookHandler.records), n)
+
+    def test_lifecycle_clean_run_sends_start_then_finish(self):
+        import signal
+        self._configure()
+        prev_term = signal.getsignal(signal.SIGTERM)
+        with notify.training_lifecycle("EXP-001", gpus=[0], note="常规轮",
+                                       runtime=str(self.runtime)):
+            pass
+        self.assertEqual(len(HookHandler.records), 2)
+        titles = [r["card"]["header"]["title"]["content"] for r in HookHandler.records]
+        self.assertIn("训练开始", titles[0])
+        self.assertIn("训练结束", titles[1])
+        # 退出后还原信号处理器，不污染训练进程原有状态
+        self.assertEqual(signal.getsignal(signal.SIGTERM), prev_term)
+
+    def test_lifecycle_exception_sends_interrupt_and_reraises(self):
+        self._configure()
+        with self.assertRaises(RuntimeError):
+            with notify.training_lifecycle("EXP-002", gpus=[0], runtime=str(self.runtime)):
+                raise RuntimeError("CUDA OOM")
+        self.assertEqual(len(HookHandler.records), 2)
+        payload = HookHandler.records[1]
+        self.assertIn("训练中断", payload["card"]["header"]["title"]["content"])
+        md = payload["card"]["elements"][0]["text"]["content"]
+        self.assertIn("RuntimeError: CUDA OOM", md)
+
+    def test_lifecycle_systemexit_zero_counts_as_finish(self):
+        self._configure()
+        with self.assertRaises(SystemExit):
+            with notify.training_lifecycle("EXP-005", runtime=str(self.runtime)):
+                raise SystemExit(0)
+        titles = [r["card"]["header"]["title"]["content"] for r in HookHandler.records]
+        self.assertEqual(len(titles), 2)
+        self.assertIn("训练结束", titles[1])  # 零码收尾按 finish，不误报中断
+
+    def test_lifecycle_unconfigured_no_send_no_error(self):
+        with notify.training_lifecycle("EXP-003", runtime=str(self.runtime)):
+            pass  # 未配置：钩子全程静默，绝不抛异常
+        self.assertEqual(HookHandler.records, [])
+
+    def test_lifecycle_send_failure_never_breaks_training(self):
+        HookHandler.behavior(500, "{}")
+        self._configure()
+        with notify.training_lifecycle("EXP-004", runtime=str(self.runtime)):
+            pass  # 训练主体不受通知失败影响，with 块照常走完
+        self.assertEqual(len(HookHandler.records), 2 * notify.ATTEMPTS)  # 每条各重试后放弃
+
+    def test_lifecycle_sigterm_sends_interrupt_in_subprocess(self):
+        import os
+        import signal
+        import subprocess
+        self._configure()
+        code = (
+            "import sys, time\n"
+            f"sys.path.insert(0, {str(Path(__file__).resolve().parents[2])!r})\n"
+            "from medpowers import notify\n"
+            "with notify.training_lifecycle('EXP-009', gpus=[0]):\n"
+            "    time.sleep(60)\n"
+        )
+        env = {**os.environ, "MEDPOWERS_RUNTIME": str(self.runtime)}
+        proc = subprocess.Popen([sys.executable, "-c", code], env=env)
+        try:
+            self._wait_records(1)  # start 已送达 = 子进程已进入 with 块
+            proc.send_signal(signal.SIGTERM)
+            rc = proc.wait(timeout=15)
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait()
+        self.assertEqual(rc, -signal.SIGTERM)  # 还原默认语义：死于 SIGTERM
+        self._wait_records(2)
+        payload = HookHandler.records[1]
+        self.assertIn("训练中断", payload["card"]["header"]["title"]["content"])
+        self.assertIn("SIGTERM", payload["card"]["elements"][0]["text"]["content"])
 
 
 if __name__ == "__main__":

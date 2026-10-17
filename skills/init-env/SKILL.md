@@ -1,6 +1,6 @@
 ---
 name: init-env
-description: 初始化 MTSkills 运行环境：第一件事是任务画像问卷——询问用户目标、医疗影像模态、2D/2.5D/3D 建模维度、分割/分类/配准等任务类型，用户必须全部答复后才能继续任何后续步骤；随后查询 GPU 静态信息（显存总量）、询问用户哪些卡可用（默认全部可用）、检查 PyTorch + CUDA 张量训练环境（默认 uv 虚拟环境，不可用时经用户同意用 uv 初始化整套环境，用户也可指定系统或其他解释器）、询问训练通知配置（本机名称与 webhook 链接，可不配置），并把全部结果持久化到任务仓库工作区的 runtime/env.json 与 runtime/notify.json。会话首次涉及训练、调优或资源调度时使用。
+description: 初始化 MedPowers 运行环境：第一件事是任务画像问卷——询问用户目标、医疗影像模态、2D/2.5D/3D 建模维度、分割/分类/配准等任务类型，用户必须全部答复后才能继续任何后续步骤；随后查询 GPU 静态信息（显存总量）、询问用户哪些卡可用（默认全部可用）、检查 PyTorch + CUDA 张量训练环境（默认 uv 虚拟环境，不可用时经用户同意用 uv 初始化整套环境，用户也可指定系统或其他解释器）、询问训练通知配置（机器名称与 webhook 链接，可不配置），并把全部结果持久化到任务仓库工作区的 runtime/env.json 与 runtime/notify.json。会话首次涉及训练、调优或资源调度时使用。
 ---
 
 # init-env — 初始化环境
@@ -15,7 +15,7 @@ description: 初始化 MTSkills 运行环境：第一件事是任务画像问卷
 
 用 AskUserQuestion 一次问 4 个问题：
 
-1. **本次目标**（header「本次目标」）：这次要通过 MTSkills 达成什么？
+1. **本次目标**（header「本次目标」）：这次要通过 MedPowers 达成什么？
    - 新任务完整回路——从基础模型选型开始，走"选型 → 训练 → 诊断 → 下一轮"
    - 已有任务调优——训练已在进行，要诊断训练状态并推荐下一轮配置
    - 暂不训练——先完成环境初始化（画像仍须按计划中的任务回答，不得留空）
@@ -53,13 +53,14 @@ python3 skills/init-env/init_env.py gpu-static
 3. 检查不通过（torch 缺失 / CUDA 张量不可用）→ 询问用户："是否通过 uv 初始化一整套运行环境？"
    - 同意 → `init-uv [--python 3.11]`（创建 pyproject + `.venv` 并安装 torch；**默认走阿里 PyPI 镜像** `https://mirrors.aliyun.com/pypi/simple/`，同时写入 pyproject 的 `[tool.uv.index]`，后续 `uv add/sync` 也走同一镜像；换源用 `--index <URL>`；下载量数 GB，建议后台运行），完成后重新 `check-python`；
    - 拒绝 → 如实记录 `status: "not-ready"` 与原因；
-4. 检查/初始化结果写入 env.json 的 `python_env`（`ready` / `not-ready`）。
+4. 检查/初始化结果写入 env.json 的 `python_env`（`ready` / `not-ready`）；
+5. **安装 medpowers 训练运行时客户端（python_env 为 ready 时）**：`cd <任务仓库工作区> && uv add <medpowers 副本根>`——副本根从本技能脚本位置解析（`skills/init-env/` 向上三级：插件缓存 `<cache>/medpowers/<版本>/` 或任务仓库 `.agents/medpowers`；源仓库同理），以 path 依赖写入任务仓库 pyproject（版本与插件严格一致）。装完冒烟：`uv run python -c "from medpowers import training_session; print('ok')"`。失败不阻断初始化，在汇报中注明并建议后续补装；多机共享的任务仓库建议改用 git 安装副本（相对路径源跨机可复现，插件缓存的绝对路径源仅本机有效）。
 
 ### 第 5 步：训练通知配置（必须问；用户可不配置，不配置则组件不生效）
 
 用 AskUserQuestion 一次问 2 个问题：
 
-1. **机器名称**（header「机器名称」）："本机叫什么名字？（用于训练通知中标识这台机器）"
+1. **机器名称**（header「机器名称」）："这台机器叫什么名字？（用于训练通知、实验记录与 lease 中标识这台机器——多机协作时凭它区分是哪台机器在跑）"
    - 使用系统主机名（`<hostname>`，把实测值写在选项里）
    - 不配置（通知组件不生效）
    - 自定义名称在 Other 中填写

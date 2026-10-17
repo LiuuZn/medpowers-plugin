@@ -1,11 +1,11 @@
 ---
 name: git-mgmt
-description: mtskills 仓库自身的开发管理规范（双远端 git 策略），位于 .agents/skills/ 供开发本仓库的智能体自动识别，不随 skills/ 分发给训练仓库。凡在本仓库做 git 提交、推送、远端同步，或用户提到 push / 推送 / 发布 / 开源 / GitHub / GitLab 时使用：origin=私有 GitLab 是默认推送目标；github=公有 GitHub 只有用户当次明确指示才允许推送，绝不默认发布。脚本提供 status / push / add-github / check / validate 五个动作，validate 为插件清单与收录边界的发布前只读校验。
+description: medpowers 仓库自身的开发管理规范（双远端 git 策略），位于 .agents/skills/ 供开发本仓库的智能体自动识别，不随 skills/ 分发给训练仓库。凡在本仓库做 git 提交、推送、远端同步，或用户提到 push / 推送 / 发布 / 开源 / GitHub / GitLab 时使用：origin=私有 GitLab 是默认推送目标；github=公有 GitHub 只有用户当次明确指示才允许推送，绝不默认发布。脚本提供 status / push / add-github / check / validate 五个动作，validate 为插件清单与收录边界的发布前只读校验。
 ---
 
 # git-mgmt — 本仓库开发管理的双远端 git 规范
 
-**定位**：本技能面向 **mtskills 仓库自身的开发管理**（源副本 `/ssd/lx/mtskills`），放在 `.agents/skills/`（ZCode 等智能体的技能自动发现路径，开发本仓库时自动可识别）而非 `skills/`——`skills/` 是随仓库分发给训练仓库的算法开发技能包（init-env / data-mgmt / self-update），本技能不承担该职责；安装副本（训练仓库 `.agents/mtskills`）只拉不推，也用不到这里的推送能力。
+**定位**：本技能面向 **medpowers 仓库自身的开发管理**（源副本 `/ssd/lx/medpowers`），放在 `.agents/skills/`（ZCode 等智能体的技能自动发现路径，开发本仓库时自动可识别）而非 `skills/`——`skills/` 是随仓库分发给训练仓库的算法开发技能包（init-env / data-mgmt / self-update），本技能不承担该职责；安装副本（训练仓库 `.agents/medpowers`）只拉不推，也用不到这里的推送能力。
 
 本仓库维持两份 git 远端：私有 GitLab 承载日常开发与调试，公有 GitHub 对应开源发布。脚本自动定位**自己所在副本**的仓库根（与当前工作目录无关）：
 
@@ -22,7 +22,7 @@ python3 .agents/skills/git-mgmt/git_mgmt.py validate          # 发布前校验�
 
 | 远端 | 地址 | 用途 | 推送规则 |
 |---|---|---|---|
-| `origin` | 私有 GitLab（gitlab.suoyin.info/liuxin/mtskills） | 日常开发与调试 | **未指明远端时一律推这里** |
+| `origin` | 私有 GitLab（gitlab.suoyin.info/liuxin/medpowers） | 日常开发与调试 | **未指明远端时一律推这里** |
 | `github` | 公有 GitHub（开源仓库） | 对外发布 | 仅当用户**当次明确指示**（远端未配置时先 `add-github`） |
 
 命令纪律：永远显式写远端与分支（`git push origin main`），**不用裸 `git push`**——双远端下裸命令的默认目标不明确；拉取统一走 self-update 技能或 `git pull --ff-only origin main`。
@@ -44,7 +44,7 @@ python3 .agents/skills/git-mgmt/git_mgmt.py validate          # 发布前校验�
 ## 仓库边界
 
 - 本目录内的一切 git 操作只作用于本仓库自身；外层 `/ssd/lx` 大仓库混有大量无关改动，**绝不在其中 `git add -A`**。
-- 安装副本（训练仓库 `.agents/mtskills`）**只拉不推**：脚本检测到安装形态即拒绝 push；要改内容回源副本改，经 origin 分发。
+- 安装副本（训练仓库 `.agents/medpowers`）**只拉不推**：脚本检测到安装形态即拒绝 push；要改内容回源副本改，经 origin 分发。
 - `runtime/` 内 env.json、data.json 等是机器本地状态，按现有约定进 git，但提交前不要把训练 lease、临时产物带进版本。
 
 ## 发布前检查（推 github 之前）
@@ -76,7 +76,7 @@ python3 .agents/skills/git-mgmt/git_mgmt.py validate          # 发布前校验�
 | `push` 未指明远端 | 推 `origin` 当前分支 |
 | `push --remote github` 缺 `--publish` | 拒绝并说明授权规则 |
 | `push --remote github --publish` | 先跑泄露面扫描摘要，再推送 |
-| 在安装副本（.agents/mtskills）内 push | 拒绝（安装副本只拉不推） |
+| 在安装副本（.agents/medpowers）内 push | 拒绝（安装副本只拉不推） |
 | `github` 远端未配置 | 提示 `add-github --url <URL>` |
 | `add-github` 远端已存在 | 报告现有 URL，加 `--force` 才更换 |
 | `status` 离线 | fetch 失败时注明，用陈旧引用报告 ahead/behind |

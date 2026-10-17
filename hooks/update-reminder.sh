@@ -30,5 +30,5 @@ dl_date="$(date -d "@$mtime" +%F 2>/dev/null || date -r "$mtime" +%F 2>/dev/null
 [ -n "$dl_date" ] || dl_date="epoch $mtime"
 
 printf '%s\n' \
-  '## mtskills 插件更新提醒（会话级指令，仅本插件下载超过一周时注入）' \
-  "当前 mtskills 插件副本（${version}）下载于 ${dl_date}，已 ${age_days} 天未更新。本会话中请在**每次回复的末尾**附一行简短友好的提醒，建议用户检查 mtskills 插件更新（插件模式经所在平台的插件管理器更新，如 Claude Code /plugin、ZCode 插件市场，或对 mtskills 市场重新 add/update；见插件 README「插件安装」）。要求：一两句话即可，不干扰任务本身；用户表示已更新、已知晓或不需要后，本会话立即停止附加。"
+  '## medpowers 插件更新提醒（会话级指令，仅本插件下载超过一周时注入）' \
+  "当前 medpowers 插件副本（${version}）下载于 ${dl_date}，已 ${age_days} 天未更新。本会话中请在**每次回复的末尾**附一行简短友好的提醒，建议用户检查 medpowers 插件更新（插件模式经所在平台的插件管理器更新，如 Claude Code /plugin、ZCode 插件市场，或对 medpowers 市场重新 add/update；见插件 README「插件安装」）。要求：一两句话即可，不干扰任务本身；用户表示已更新、已知晓或不需要后，本会话立即停止附加。"

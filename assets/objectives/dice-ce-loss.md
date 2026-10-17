@@ -53,4 +53,6 @@
 
 ## 实验反链
 
-- 暂无（`experiments/` 目前为空）。
+- thymic_seg `EXP-011`（nnU-Net v2 默认 3d_fullres fold 0，nnUNetTrainer 默认损失即本口径）
+- thymic_seg `EXP-012`（ResEnc-M plans fold 0，损失与 EXP-011 完全一致，骨干单变量对照）
+- 组装进完整训练配方（深监督加权、优化器、AMP）见 [../recipes/nnunet-default-recipe.md](../recipes/nnunet-default-recipe.md)。

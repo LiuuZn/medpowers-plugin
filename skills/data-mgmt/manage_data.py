@@ -41,9 +41,9 @@ def _workspace_root() -> Path:
 
 
 def resolve_runtime() -> Path:
-    """runtime 状态目录：环境变量 MTSKILLS_RUNTIME（直接指向 runtime 目录）最高；
+    """runtime 状态目录：环境变量 MEDPOWERS_RUNTIME（直接指向 runtime 目录）最高；
     否则 <工作区根>/runtime。"""
-    env = os.environ.get("MTSKILLS_RUNTIME", "").strip()
+    env = os.environ.get("MEDPOWERS_RUNTIME", "").strip()
     if env:
         return Path(env).expanduser().resolve()
     return _workspace_root() / "runtime"
@@ -250,7 +250,7 @@ ANN_TEMPLATES = {
 
 README_TMPL = """# {name} — 数据集
 
-由 mtskills 的 data-mgmt 技能创建。层级规则：
+由 medpowers 的 data-mgmt 技能创建。层级规则：
 
 - `raw/` 只读（原始数据，永不修改）
 - `processed/<recipe>/` 训练就绪正本（3D 压缩 NRRD / 2D 无损 PNG），recipe = 预处理配方名

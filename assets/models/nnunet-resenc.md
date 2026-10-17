@@ -11,11 +11,11 @@
 
 ## 核心机制
 
-两层改动：①**网络**——编码器每级换成 2 个 ResNet-D 式残差块（conv(步长)→IN→LeakyReLU ×2，短路 = AvgPool→1×1×1 卷积→IN，stem 为 1 个普通卷积），解码器保持普通卷积级联；②**配方**——预设不是固定拓扑，而是把"显存目标"（M=8/L=24/XL=40 GB 规划值）交给 nnU-Net planner，按数据集 spacing 自动算 patch、各向异性步长、通道与批大小，并取消"单批 ≤ 数据集 5%"的旧上限。预处理、增广、训练配方、滑窗推理与原版 nnU-Net 完全一致——增益只来自网络容量与显存利用率的放大。
+两层改动：①**网络**——编码器每级换成 ResNet-D 式残差块（conv(步长)→IN→LeakyReLU ×2，短路 = AvgPool→1×1×1 卷积→IN，stem 为 1 个普通卷积），解码器保持普通卷积级联；**每级块数不是 2**——nnU-Net ResEnc 预设用固定常数序列 **(1,3,4,6,6,6,…)**（M/L/XL 共用，nnunetv2 `resencUNet_planner.py` 的 `UNet_blocks_per_stage_encoder`），2 只是 dynamic_network_architectures 构造器的默认值；②**配方**——预设不是固定拓扑，而是把"显存目标"（M=8/L=24/XL=40 GB 规划值）交给 nnU-Net planner，按数据集 spacing 自动算 patch、各向异性步长、通道与批大小，并取消"单批 ≤ 数据集 5%"的旧上限。预处理、增广、训练配方、滑窗推理与原版 nnU-Net 完全一致——增益只来自网络容量与显存利用率的放大。
 
 ## 量级
 
-- 参数量：随数据集规划变化；参考实现按 planner 示例的典型 3D fullres 配置（6 级、通道 (32,64,128,256,320,320)、每级 2 残差块、解码每级 1 卷积）实测 **41,992,490 ≈ 42.0M**。
+- 参数量：随数据集规划变化，且**强烈依赖块数口径**——planner 示例配置（6 级、通道 (32,64,128,256,320,320)、每级 2 残差块、解码每级 1 卷积）为 42.0M；换用 nnU-Net ResEnc 预设的真实块数序列 (1,3,4,6,6,6) 后，**同通道规划实测 101,926,314 ≈ 101.9M**（thymic_seg Dataset701_Thymus 的 M plans 规划产物，2026-10-15 用本目录参考实现构建核对）——引用 ResEnc 参数量时必须注明块数口径。
 - 显存/时长（官方 A100 40GB 口径）：M 9.1GB / 约 12h；L 22.7GB / 约 35h；XL 36.6GB / 约 66h。
 - 2×4090（标称 24GB/卡）：M 轻松（官方推荐 9–11GB 卡即可）；L 官方要求 24GB 卡，4090 可跑（紧张时框架自动缩 patch），是本仓库预算下的事实上限配置；XL 单卡装不下。
 
@@ -36,12 +36,14 @@
 
 ## 经验备注
 
-- 调用：`nnUNetv2_plan_and_preprocess -d DATASET -pl nnUNetPlannerResEncM/L/XL`（已有预处理则用 `nnUNetv2_plan_experiment`）；训练/推理加 `-p nnUNetResEncUNetM/L/XLPlans`。
+- 调用：`nnUNetv2_plan_and_preprocess -d DATASET -pl nnUNetPlannerResEncM/L/XL`（已有预处理则用 `nnUNetv2_plan_experiment`）；训练/推理加 `-p nnUNetResEncUNetM/L/XLPlans`。新版 nnunetv2 的 ResEnc planner 产物名 = `nnUNetResEncUNetMPlans`（旧名 nnUNetPlannerResEncM 已弃用），其 3d_fullres 配置复用默认 plans 的预处理数据，无需重复预处理。
 - 自定义显存目标：`-gpu_memory_target <GB>` 且必须配 `-overwrite_plans_name`（官方指引）；结果进独立目录，不覆盖标准 plans。
 - 多卡：官方建议按单卡显存规划（如 L=24GB），再在 plans 里手动放大 batch（batch 2 × 8 卡 = 16），不做模型并行。
 - TotalSegmentator v2 的官方权重即 ResEnc-L（104 结构整体 Dice 0.943，训练约 7 天缩至 1.25 天）——CT 解剖分割的现役参照点。
-- 参考实现：`nnunet-resenc.py`（自包含 ResidualEncoderUNet3D：ResNet-D 残差编码器 + 普通解码器 + 深监督 + He 初始化/残差支路末级 norm 置零，CPU 自测 6 项通过）。
+- 规划产物实例（小数据集 CT 各向异性，thymic_seg Dataset701_Thymus，M plans 2026-10-15 核对）：patch `[96,160,160]`（z-y-x）、batch 2、features (32,64,128,256,320,320)、strides 第 6 级 `[1,2,2]`（薄 z 轴停止下采样的各向异性规划）、n_blocks (1,3,4,6,6,6)——RTX 4090 上 101.9M 参数、~9.5 GB、45.7 s/epoch（训练配方见 [../recipes/nnunet-default-recipe.md](../recipes/nnunet-default-recipe.md)）。
+- 参考实现：`nnunet-resenc.py`（自包含 ResidualEncoderUNet3D：ResNet-D 残差编码器 + 普通解码器 + 深监督 + He 初始化/残差支路末级 norm 置零，CPU 自测 6 项通过；n_blocks_per_stage 接受逐级列表，预设复现时传 (1,3,4,6,6,6)）。
 
 ## 实验反链
 
-- 暂无（作为基线的对照实验登记后回链 `EXP-*`）。
+- thymic_seg `EXP-011`（PlainConv 默认配置 fold 0，本架构的对照臂，33.4 s/epoch）
+- thymic_seg `EXP-012`（ResEnc-M plans fold 0；ep~100 快照统一口径 ccLargest 0.7060 已越既有锚点 0.7015，训练进行中）

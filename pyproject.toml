@@ -1,0 +1,30 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# medpowers 训练运行时客户端：实验记录生命周期（start/finish 门禁）+ GPU lease + 训练通知。
+# 仓库即插件即包源——本文件随插件缓存完整分发，任务仓库经 `uv add <副本根>` 以 path 依赖
+# 安装（插件主导，版本与插件严格一致）。版本唯一事实源是 .claude-plugin/plugin.json。
+[project]
+name = "medpowers"
+dynamic = ["version"]
+description = "MedPowers 训练运行时客户端：实验记录生命周期、GPU lease、训练通知（内嵌训练框架，非智能体）"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []  # 纯标准库 + git CLI，刻意零第三方依赖：任何训练环境直接可用
+license = { text = "MIT" }
+
+[project.scripts]
+medpowers = "medpowers.cli:main"
+
+[tool.hatch.version]
+source = "regex"
+path = ".claude-plugin/plugin.json"
+pattern = '"version":\s*"(?P<version>[^"]+)"'
+
+[tool.hatch.build.targets.wheel]
+packages = ["medpowers"]
+
+# 实验记录模板随包分发：pip 安装后 `exp new` 不依赖仓库副本
+[tool.hatch.build.targets.wheel.force-include]
+"experiments/TEMPLATE.md" = "medpowers/TEMPLATE.md"

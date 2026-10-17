@@ -1,14 +1,14 @@
 {
-  "name": "mtskills",
+  "name": "medpowers",
   "description": "Medical small-model training methodology skill library (marketplace)",
   "owner": {
     "name": "liuxin"
   },
   "plugins": [
     {
-      "name": "mtskills",
+      "name": "medpowers",
       "source": "./",
-      "version": "0.11.0",
+      "version": "0.12.0",
       "description": "Methodology skill library for training efficient medical-imaging deep learning small models: base model selection, training-state diagnosis, and next-config recommendation.",
       "category": "developer-tools",
       "keywords": [

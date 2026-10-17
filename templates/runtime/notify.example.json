@@ -1,6 +1,6 @@
 {
   "enabled": true,
-  "machine_name": "本机名称（用户在 init-env 问卷告知，通知中标识这台机器；不告知则整体不生效）",
+  "machine_name": "机器名称（用户在 init-env 问卷告知；用于训练通知与实验记录/lease 中标识这台机器——多机共读的台账禁称'本机'；不告知则整体不生效）",
   "webhook": {
     "type": "feishu",
     "url": "https://open.feishu.cn/open-apis/bot/v2/hook/<token>（由技能 skills/notify 的 set 写入；URL 含敏感 token，入库前确认仓库私有性）",

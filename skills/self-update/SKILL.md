@@ -1,6 +1,6 @@
 ---
 name: self-update
-description: 通过 git 拉取本仓库（mtskills）最新主分支，更新当前副本。当用户要求"更新 mtskills / 更新技能库 / 拉取最新方法论 / 更新 .agents/mtskills"时使用；适用于源副本（/ssd/lx/mtskills）与任何安装副本（训练仓库 .agents/mtskills，submodule 或嵌套 clone 均可）。插件（.claude-plugin 市场）安装模式下更新由插件管理器完成，本技能仅服务于 git 安装副本。
+description: 通过 git 拉取本仓库（medpowers）最新主分支，更新当前副本。当用户要求"更新 medpowers / 更新技能库 / 拉取最新方法论 / 更新 .agents/medpowers"时使用；适用于源副本（/ssd/lx/medpowers）与任何安装副本（训练仓库 .agents/medpowers，submodule 或嵌套 clone 均可）。插件（.claude-plugin 市场）安装模式下更新由插件管理器完成，本技能仅服务于 git 安装副本。
 ---
 
 # self-update — 拉取最新主分支
@@ -9,7 +9,7 @@ description: 通过 git 拉取本仓库（mtskills）最新主分支，更新当
 
 ```bash
 python3 skills/self-update/self_update.py          # 在任一副本内
-python3 .agents/mtskills/skills/self-update/self_update.py   # 在训练仓库内
+python3 .agents/medpowers/skills/self-update/self_update.py   # 在训练仓库内
 ```
 
 手动等价：`cd <副本> && git fetch origin && git merge --ff-only origin/main`。
@@ -28,7 +28,7 @@ python3 .agents/mtskills/skills/self-update/self_update.py   # 在训练仓库�
 | 已是最新 | 报告当前提交，不动任何文件 |
 | 有新提交 | 快进 + 列出 `old..new` 的提交摘要 |
 | runtime/ 外有本地改动 | 拒绝更新并列出文件 |
-| 更新成功且位于其他仓库内（如 .agents/mtskills） | 提醒：submodule 方式需在训练仓库 commit 子模块指针；嵌套 clone 方式无后续动作 |
+| 更新成功且位于其他仓库内（如 .agents/medpowers） | 提醒：submodule 方式需在训练仓库 commit 子模块指针；嵌套 clone 方式无后续动作 |
 
 ## 约束
 
