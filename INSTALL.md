@@ -117,15 +117,30 @@ done && echo "验证通过"
 
 ## 6.5 Python 包安装（插件主导；训练框架集成的 prerequisite）
 
-安装根同时是 Python 包源（插件缓存为整仓完整复制，包随插件分发）。init-env 在训练环境就绪后执行：
+安装根同时是 Python 包源（插件缓存为整仓完整复制，包随插件分发）。init-env 在训练环境就绪后安装。
+
+**硬规则：任务仓库 pyproject 里的 medpowers 源必须跨机可解析。** pyproject/uv.lock 随 git 多机共享，他机 `uv sync` 按同一路径找包——只有两种源形态允许提交进共享仓库：
+
+| 源形态 | 命令 | 适用 |
+|---|---|---|
+| **仓内相对源（默认）** | `uv add ./.agents/medpowers`（无副本先按 §5 装；嵌套 clone 记得 .gitignore，submodule 免） | 单机/多机通用：每台机器各有一份 `.agents/medpowers` 副本，路径恒可解析，版本与插件一致 |
+| git tag 依赖（备选） | `uv add "medpowers@git+https://gitlab.suoyin.info/liuxin/medpowers.git@v<版本>"` | 不愿放仓内副本的多机仓库；跨机只需 GitLab 凭据，锁 tag |
+
+**兄弟目录相对路径（如 `uv add ../mtskills`）与插件缓存绝对路径只对写入的那台机器有效，不得提交进多机共享的 pyproject**——他机一 sync 即 `ModuleNotFoundError: medpowers`。单机仓库用了这类源，转多机前先按下节改为仓内相对源。装完冒烟：`uv run python -c "from medpowers import training_session; print('ok')"`。训练入口集成见 `skills/notify/SKILL.md` 与 `medpowers/session.py` 的 docstring（`with training_session("EXP-001", gpus=[0,1], ...) as s:` 包住训练主流程）。
+
+### 修复他机写入的失效 path 源
+
+症状：任务仓库 pyproject/uv.lock 声明的 medpowers 路径在本机不存在（典型 `../mtskills`），训练入口 import 即挂。修复（**每台共用该仓库的机器各做一次**；嵌套 clone 形态）：
 
 ```bash
 cd <任务仓库工作区>
-uv add <安装根>          # 即上面的 <安装根>：插件缓存目录（模式 A）或 .agents/medpowers（模式 B）
-uv run python -c "from medpowers import training_session; print('ok')"   # 冒烟
+test -d .agents/medpowers || git clone https://gitlab.suoyin.info/liuxin/medpowers.git .agents/medpowers
+grep -q '^\.agents/medpowers' .gitignore || echo '.agents/medpowers/' >> .gitignore
+uv add ./.agents/medpowers        # 覆盖失效源声明，path 源改为仓内相对路径
+uv run python -c "from medpowers import training_session; print('ok')"
 ```
 
-以 path 依赖写进任务仓库 pyproject，版本与插件严格一致。注意：**多机共享的任务仓库**用模式 B 的相对路径源（`.agents/medpowers`，跨机可复现）；模式 A 的插件缓存绝对路径仅本机有效，多机仓库请在各机各自 `uv add` 或改用模式 B。训练入口集成见 `skills/notify/SKILL.md` 与 `medpowers/session.py` 的 docstring（`with training_session("EXP-001", gpus=[0,1], ...) as s:` 包住训练主流程）。
+（submodule 形态则按 §5 方式一装副本后同样 `uv add ./.agents/medpowers`。）临时应急也可按失效声明补一个兄弟 clone（`git clone <远端URL> /data/lx/mtskills`）后 `uv sync`，但该布局天然不跨机，仍建议尽快改为仓内相对源。
 
 ## 7. 安装后必转达用户（智能体不要省略）
 
@@ -150,6 +165,7 @@ uv run python -c "from medpowers import training_session; print('ok')"   # 冒�
 | raw URL 拉不到（私有仓库鉴权） | `git clone` 上游仓库后读本地 INSTALL.md |
 | 插件安装后看不到技能 | 重启会话；确认技能带 `medpowers:` 前缀；检查平台插件列表中 medpowers 是否启用 |
 | 技能列表同时出现 `mtskills:` 与 `medpowers:` 两套前缀 | 旧版插件未清理：按 §3 移除旧市场/旧插件后再重启会话 |
+| 他机 `uv sync` / 训练入口报 `ModuleNotFoundError: medpowers`（pyproject 声明的 path 源本机不存在，如 `../mtskills`） | 失效 path 源：按 §6.5「修复他机写入的失效 path 源」改为仓内相对源（每台机器各做一次） |
 
 ## 10. 卸载
 

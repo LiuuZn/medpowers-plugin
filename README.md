@@ -9,7 +9,7 @@
 > **选基础模型 → 诊断训练状态 → 推荐下一轮配置** 的完整调优闭环，
 > 以任务无关的知识资产 + 方法论 + 智能体技能的形式分发。
 
-![version](https://img.shields.io/badge/version-v0.12.0-0A7BFF)
+![version](https://img.shields.io/badge/version-v0.12.1-0A7BFF)
 ![platforms](https://img.shields.io/badge/platforms-ZCode%20%C2%B7%20Claude%20Code%20%C2%B7%20Codex-8757FF)
 ![assets](https://img.shields.io/badge/assets-41%20%E5%8D%A1-16A34A)
 ![skills](https://img.shields.io/badge/skills-7%20%E4%B8%AA-EA580C)
@@ -212,7 +212,7 @@ git remote add origin <远端URL> && git push -u origin main
 
 仓库根同时是一个 Python 包源（`pyproject.toml` + `medpowers/` 包）：实验记录生命周期（start/finish 门禁）、GPU lease、训练通知的**进程内实现**，供训练框架 `from medpowers import training_session` 内嵌使用——start/finish 与三类训练通知由**训练进程自己**完成，而非智能体。包零第三方依赖（纯标准库 + git CLI），版本动态读 `.claude-plugin/plugin.json`（与插件严格一致）。
 
-**安装由插件主导**：插件缓存是整仓完整复制（含包源），init-env 在训练环境就绪后执行 `uv add <medpowers 副本根>`（副本根 = 插件缓存目录或任务仓库 `.agents/medpowers`），以 path 依赖写进任务仓库 pyproject。多机共享的任务仓库建议用 git 安装副本（相对路径源跨机可复现；插件缓存的绝对路径源仅本机有效）。
+**安装由插件主导**：插件缓存是整仓完整复制（含包源），init-env 在训练环境就绪后把包以 path 依赖装进任务仓库。**硬规则：提交进共享 pyproject 的源必须跨机可解析**——默认仓内相对源（各机按 git 安装模式备一份 `.agents/medpowers` 副本后 `uv add ./.agents/medpowers`）；备选 git tag 依赖（`uv add "medpowers@git+<远端URL>@vX.Y.Z"`）。兄弟目录相对路径（`../mtskills`）与插件缓存绝对路径只对写入的机器有效，不得进多机共享 pyproject；失效源的修复见 INSTALL.md §6.5。
 
 ```python
 from medpowers import training_session
@@ -301,7 +301,7 @@ medpowers/
 
 <div align="center">
 
-**MEDPOWERS** · 医疗影像小模型训练方法论 · v0.12.0
+**MEDPOWERS** · 医疗影像小模型训练方法论 · v0.12.1
 
 方法论文本与代码不构成医疗建议 · 实验结论以程序化测量与用户审片为准
 
