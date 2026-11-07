@@ -9,10 +9,10 @@
 > **选基础模型 → 诊断训练状态 → 推荐下一轮配置** 的完整调优闭环，
 > 以任务无关的知识资产 + 方法论 + 智能体技能的形式分发。
 
-![version](https://img.shields.io/badge/version-v0.12.1-0A7BFF)
+![version](https://img.shields.io/badge/version-v0.14.0-0A7BFF)
 ![platforms](https://img.shields.io/badge/platforms-ZCode%20%C2%B7%20Claude%20Code%20%C2%B7%20Codex-8757FF)
 ![assets](https://img.shields.io/badge/assets-41%20%E5%8D%A1-16A34A)
-![skills](https://img.shields.io/badge/skills-7%20%E4%B8%AA-EA580C)
+![skills](https://img.shields.io/badge/skills-8%20%E4%B8%AA-EA580C)
 
 **41 张论文支撑的资产卡** · **4 篇方法论** · **7 个技能** · **1 套实验记录规范**
 
@@ -29,7 +29,7 @@
 | 本仓库（方法论，只读分发） | 任务仓库（承载训练） |
 |---|---|
 | `assets/` 知识资产卡（模型 · 预处理 · 增强 · 目标函数） | 数据本体（raw / processed / cache 三层） |
-| `methods/` 方法论四篇 | 训练代码、checkpoint、日志 |
+| `methods/` 方法论四篇 + 精度策略 | 训练代码、checkpoint、日志 |
 | `skills/` 七个技能 + `hooks/` 会话注入 | `<工作区>/runtime/`（环境 · 数据 · GPU lease · 通知状态） |
 | `experiments/TEMPLATE.md` 记录模板 | `<工作区>/experiments/` 实验台账（EXP-NNN，进任务仓库 git） |
 
@@ -39,7 +39,7 @@
 
 - **任务无关**：`assets/` 只讲机制、适用场景与参数经验，不绑定数据集/器官/项目；任务特定经验写进对应实验记录。
 - **论文支撑**：每条资产按"统一四问"注明——哪篇论文用了它、目的、效果、结论；架构与损失卡附可复用 Python 参考实现。
-- **预算约束**：面向 2×RTX 4090（每卡 23 GB）下的小模型训练设计，优先 AMP。
+- **预算约束**：面向 2×RTX 4090（Ada sm_89，每卡 23 GB）下的小模型训练设计，优先 AMP + bf16（精度策略见 [methods/precision-policy.md](methods/precision-policy.md)）。
 - **可溯源**：资产与实验记录互加反链；没有实验记录的结论不得作为后续调优依据。
 
 ### 医疗影像可视化红线（强制）
@@ -47,6 +47,12 @@
 - **智能体不得把自己的影像视觉判断作为证据或决策依据**——"看图下结论"一律无效；
 - 对错判定只允许来自**程序化测量**（掩码统计、几何计算、指标数值）与**用户审片反馈**两类渠道；
 - 智能体可以生成审片图等可视化产物，但结论必须交由用户查看后反馈。
+
+### 数据与计算精度（强制，默认速度优先）
+
+- **批量数据禁 64 位**（float64/int64）；存储按位深够用，训练/推理默认偏速度；
+- 训练默认 AMP + bf16；推理常规 bf16、极速 FP8 E4M3（MXFP8 需 Blackwell，RTX 4090 不支持）；
+- 完整规则、CT/MR 的 fp16 边界与切换验收见 [methods/precision-policy.md](methods/precision-policy.md)；环境能力由 init-env 的 `probe-precision` 写入 `runtime/env.json` 的 `compute_precision`。
 
 ## 核心方法论回路
 
@@ -81,7 +87,7 @@ flowchart LR
 | 🎲 数据增强 | [`assets/augmentation/`](assets/augmentation/) | 20 | nnU-Net 默认增强 · 弹性形变 · 病灶 copy-paste · Mixup/CutMix · SynthSeg 域随机化 · TTA |
 | 🎯 目标函数 | [`assets/objectives/`](assets/objectives/) | 11 | Dice+CE · Focal · Tversky · Boundary DoU · Skeleton Recall · ULoss · HD95（不可导指标） |
 
-## 方法论（四篇）
+## 方法论（四篇 + 贯穿精度策略）
 
 | 篇目 | 文件 | 回答的问题 |
 |---|---|---|
@@ -89,20 +95,22 @@ flowchart LR
 | ② 训练状态诊断 | [`methods/training-state-diagnosis.md`](methods/training-state-diagnosis.md) | 结合不同损失与目标函数的行为差异（含不可导指标背离）判断欠拟合/过拟合/lr 失当/平台等 |
 | ③ 下一轮配置推荐 | [`methods/next-config-recommendation.md`](methods/next-config-recommendation.md) | 诊断 → 具体配置变更（优先级：损失与超参 → 预处理 → 模型），每项变更带预期验证信号 |
 | ④ 标注上限诊断（插步） | [`methods/label-ceiling-diagnosis.md`](methods/label-ceiling-diagnosis.md) | 多轮调优仍平台期时**先怀疑标注再怀疑模型**，测标注一致性上限（神谕探针等四步） |
+| 贯穿约束 数据与计算精度 | [`methods/precision-policy.md`](methods/precision-policy.md) | 64 位批量数据禁用；存储/训练/推理的默认精度（训练 AMP+bf16、推理 bf16/FP8/MXFP8）、fp16 的 HU 边界与切换验收 |
 
-## 技能（七个，分发到任务仓库）
+## 技能（八个，分发到任务仓库）
 
 | 技能 | 职责 | 关键动作 |
 |---|---|---|
-| [`init-env`](skills/init-env/) | 环境初始化——**第一件事是任务画像问卷**（目标/模态/维度/任务类型，必答） | GPU 清单与可用卡确认 → 按需 uv 初始化 PyTorch+CUDA → 写 `runtime/env.json` |
-| [`data-mgmt`](skills/data-mgmt/) | 数据管理——`runtime/data.json` 登记表 + raw/processed/cache 三层存储 + 七类任务格式（seg2d/seg3d/cls/det/plane…） | scaffold / register / check / preview / du / set-root / import-planes + `label_audit` 标注审计 |
+| [`init-env`](skills/init-env/) | 环境初始化——**第一件事是任务画像问卷**（目标/模态/维度/任务类型，必答） | GPU 清单与可用卡确认 → 按需 uv 初始化 PyTorch+CUDA → `probe-precision` 探测 bf16/fp16/TF32/FP8/MXFP8 → Studio 对接问卷（可选）→ 写 `runtime/env.json`（含 `compute_precision`）与 `runtime/studio.json` |
+| [`data-mgmt`](skills/data-mgmt/) | 数据管理——`runtime/data.json` 登记表 + raw/processed/cache 三层存储 + 七类任务格式（seg2d/seg3d/cls/det/keyframe3d…）；`keyframe3d` 与 Studio 统一，`plane3d` 为历史别名 | scaffold / register / check / preview / du / set-root / import-planes + `label_audit` 标注审计 |
 | [`exp-mgmt`](skills/exp-mgmt/) | 实验记录管理——全局唯一编号 + 三时点状态机 + 多机强制同步；start/finish 正路在训练进程（medpowers.training_session），CLI 为遗留兜底 | new / start / finish / cancel / list / check / migrate |
 | [`self-update`](skills/self-update/) | git 安装副本自更新（只快进；`runtime/` 外本地改动拒绝更新） | `self_update.py` |
 | [`badcase-analysis`](skills/badcase-analysis/) | bad case 定位范式 + 八步闭环（取证→审计→富集→溯源→重建→双验证→分层治理→批准点隔离），五类错误各遴选 3–5 例渲染打包 | 开始前必读任务仓库自身的分析要求 |
 | [`seg-error-topology`](skills/seg-error-topology/) | 分割误差空间分布画像——FP/FN 按 GT 归一化相对坐标沿各轴分箱（端部/偏向/外溢/局部漏检率），结论直接喂下一轮配置 | CLI 配对清单 + 函数级 API |
 | [`notify`](skills/notify/) | 训练通知组件——start/finish/interrupt 由训练进程内嵌 medpowers 包发送（training_session / training_lifecycle），webhook 推送（飞书可选加签）；智能体仅发 cancel 与 stale lease 兜底，尽力而为、绝不影响训练 | set / disable / status / send / test |
+| [`studio`](skills/studio/) | MedPowers Studio 对接——数据/标注唯一事实源（训练侧只读 + 复核申请）、任务=模型就绪查询、实验/指标镜像、外部评测结果推送；git 记录仍是实验权威，Studio 只做可视化 | auth / status / tasks / task / exp / metrics / eval / review / sync-exp |
 
-另有 `hooks/`（会话启动注入方法论红线摘要 + 插件更新自查提醒）、`templates/runtime/`（GPU lease 协议等运行时模板）。本仓库自身的开发管理技能（双远端 git 规范）单独放 `.agents/skills/git-mgmt/`。
+另有 `hooks/`（会话启动注入方法论红线摘要 + 插件更新自查提醒）、`templates/runtime/`（GPU lease 协议等运行时模板）。Studio 对接的职责边界、scope、指标/评测 schema 与 P0 API 见 [`docs/studio-integration-contract.md`](docs/studio-integration-contract.md)。本仓库自身的开发管理技能（双远端 git 规范）单独放 `.agents/skills/git-mgmt/`。
 
 ## 实验记录规范（强制，三时点，git 管理）
 
@@ -116,7 +124,7 @@ flowchart LR
 
 - 记录存任务仓库 `<工作区>/experiments/`，**必须提交进任务仓库 git**（绝不进本仓库 git）；INDEX.md 由 exp-mgmt 自动生成。
 - **多机同步（拉取 → 确认 → 提交并推送，强制）**：远端台账是唯一事实源；推送未成功视为动作未完成——防多机重复/漏记实验。
-- 记录须含：任务与数据、模型选择理由、配置、结果曲线特征、诊断与证据、下一轮决策、产物位置。
+- 记录须含：任务与数据、模型选择理由、配置、结果曲线特征、诊断与证据、下一轮决策、产物位置。接入 Studio 时另填 `model`（Studio task_code = 模型）与「Studio 数据与评测来源」块；git 记录仍是权威，Studio 只做可视化镜像。
 
 ---
 
@@ -222,7 +230,7 @@ with training_session("EXP-001", gpus=[0, 1], task="bc3seg-unet3d") as s:
     main_train()   # 门禁失败训练不开始；正常走完自动 finish 落账；异常/SIGTERM 自动 interrupted
 ```
 
-包安装后另有统一 CLI（`medpowers notify …` / `medpowers exp …`，等价于技能脚本）；测试：`python3 -m unittest discover -s medpowers/tests -t .`。
+包安装后另有统一 CLI（`medpowers notify …` / `medpowers exp …` / `medpowers studio …`，等价于技能脚本）；测试：`python3 -m unittest discover -s medpowers/tests -t .`。
 
 ## 更新与版本纪律
 
@@ -271,23 +279,25 @@ medpowers/
 │   ├── notify.py            #   通知（尽力而为）：training_lifecycle / send_notification
 │   ├── lease.py             #   GPU lease 原子写/读/删
 │   ├── exp_cli.py           #   agent 侧实验记录 CLI（start/finish 为遗留兜底）
-│   ├── cli.py               #   统一入口（medpowers notify … / medpowers exp …）
+│   ├── studio.py            #   MedPowers Studio 客户端（设备码授权/就绪/实验指标/评测/复核/离线队列）
+│   ├── cli.py               #   统一入口（medpowers notify … / medpowers exp … / medpowers studio …）
 │   └── tests/               #   包测试（40 项）
 ├── assets/                  # 任务无关的知识资产（按类型分四类）
 │   ├── models/              # ① 模型架构（7 张卡，附 .py）
 │   ├── preprocessing/       # ② 预处理方法（3 张卡，附 .py）
 │   ├── augmentation/        # ③ 数据增强（20 张卡，不配代码）
 │   └── objectives/          # ④ 损失/目标函数/不可导指标（11 张卡，附 .py）
-├── methods/                 # 方法论（选模型 → 诊断 → 推荐下一轮 + 标注上限插步）
+├── methods/                 # 方法论（选模型 → 诊断 → 推荐下一轮 + 标注上限插步 + 精度策略）
 ├── experiments/             # 实验记录规范：只跟踪 TEMPLATE.md（记录归任务仓库）
-├── skills/                  # 分发给训练仓库的技能（一技能一目录；exp-mgmt/notify 脚本为包薄启动器）
+├── skills/                  # 分发给训练仓库的技能（一技能一目录；exp-mgmt/notify/studio 脚本为包薄启动器）
 │   ├── init-env/            # ① 环境初始化（任务画像问卷第一步 + medpowers 包安装）
 │   ├── data-mgmt/           # ② 数据管理（登记表 + 三层存储 + 格式规范）
 │   ├── exp-mgmt/            # ③ 实验记录（编号 + 三时点 + 多机同步；start/finish 正路在训练进程）
 │   ├── self-update/         # ④ git 安装副本自更新（只快进）
 │   ├── badcase-analysis/    # ⑤ bad case 定位范式 + 八步闭环分析包
 │   ├── seg-error-topology/  # ⑥ 分割误差空间分布画像
-│   └── notify/              # ⑦ 训练通知（内嵌训练进程发送）
+│   ├── notify/              # ⑦ 训练通知（内嵌训练进程发送）
+│   └── studio/              # ⑧ MedPowers Studio 对接（授权/数据就绪/实验指标/评测/复核）
 ├── hooks/                   # 会话 hook：红线摘要注入 + 插件更新自查提醒
 ├── templates/runtime/       # 任务仓库 runtime/ 协议模板（lease 协议正本）
 ├── .claude-plugin/          # 插件与市场清单（仓库即市场）
@@ -301,7 +311,7 @@ medpowers/
 
 <div align="center">
 
-**MEDPOWERS** · 医疗影像小模型训练方法论 · v0.12.1
+**MEDPOWERS** · 医疗影像小模型训练方法论 · v0.14.0
 
 方法论文本与代码不构成医疗建议 · 实验结论以程序化测量与用户审片为准
 

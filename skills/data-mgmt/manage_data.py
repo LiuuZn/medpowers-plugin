@@ -105,8 +105,17 @@ TASKS = {
         "ann": "annotations.json",
         "ann_desc": "annotations.json：COCO 格式（images/annotations/categories）",
     },
+    "keyframe3d": {
+        "label": "3D 关键帧/关键平面（与 Studio 统一）",
+        "dim": "3d",
+        "ext": ".nrrd",
+        "dirs": {"images": "3D 影像 NRRD（gzip 压缩，多模态用通道后缀 _0000）"},
+        "ann": "planes.json",
+        "ann_desc": "planes.json：每例 [{label, center_world, normal_world, 可选 in_plane_up_world/size_world}]，RAS mm",
+    },
+    # 历史别名：旧数据集仍可 check/preview；新建一律用 keyframe3d。
     "plane3d": {
-        "label": "3D 关键平面检出",
+        "label": "3D 关键平面检出（历史别名）",
         "dim": "3d",
         "ext": ".nrrd",
         "dirs": {"images": "3D 影像 NRRD（gzip 压缩，多模态用通道后缀 _0000）"},
@@ -114,6 +123,8 @@ TASKS = {
         "ann_desc": "planes.json：每例 [{label, center_world, normal_world, 可选 in_plane_up_world/size_world}]，RAS mm",
     },
 }
+
+TASK_ALIASES = {"plane3d": "keyframe3d"}
 
 PALETTE = [(228, 26, 28), (55, 126, 184), (77, 175, 74), (152, 78, 163),
            (255, 127, 0), (255, 255, 51), (166, 86, 40), (247, 129, 191),
@@ -264,7 +275,7 @@ README_TMPL = """# {name} — 数据集
 
 
 def cmd_scaffold(a) -> None:
-    task = a.task_type
+    task = TASK_ALIASES.get(a.task_type, a.task_type)
     T = TASKS[task]
     root = Path(a.root).expanduser() if a.root else Path(get_data_root())
     ds = root / a.name
@@ -320,7 +331,7 @@ def cmd_scaffold(a) -> None:
 # ---------- import-planes ----------
 
 def cmd_import_planes(a) -> None:
-    """「每例每标签一个 z 切片索引」mapping JSON -> plane3d planes.json。
+    """「每例每标签一个 z 切片索引」mapping JSON -> keyframe3d planes.json。
 
     mapping：{case_id: {"T12": 9, ...}}，z 沿影像第 3 轴。几何由影像头换算，
     统一输出 RAS mm（LPS 影像自动翻转 x,y）。面内中心缺省影像中心，
@@ -564,8 +575,8 @@ def cmd_check(a) -> None:
                             fails.append(f"{rec}: {k} 存在字段不全的框（需 label/center_world/size_world 各 3 数）")
                             break
 
-        # plane3d：planes.json
-        if task == "plane3d":
+        # keyframe3d（历史别名 plane3d）：planes.json
+        if task in ("plane3d", "keyframe3d"):
             j = load_json(rdir / T["ann"])
             if not j:
                 fails.append(f"{rec}: 缺 {T['ann']}")
@@ -907,7 +918,7 @@ def _pv_plane3d(pv, rdir, imgs, task, limit):
             valid = np_.all((idx >= 0) & (idx < shape), axis=-1)
             out = np_.zeros((H, W), arr.dtype)
             out[valid] = arr[idx[valid, 0], idx[valid, 1], idx[valid, 2]]
-            pil.fromarray(_to8(np_, out)).save(pv / f"plane3d-{k}-{pl.get('label') or pi}.png")
+            pil.fromarray(_to8(np_, out)).save(pv / f"keyframe3d-{k}-{pl.get('label') or pi}.png")
         n += 1
     return n
 
@@ -934,7 +945,7 @@ def cmd_preview(a) -> None:
     pv.mkdir(exist_ok=True)
     fn = {"seg2d": _pv_seg2d, "cls2d": _pv_cls, "cls3d": _pv_cls,
           "det2d": _pv_det2d, "seg3d": _pv_seg3d, "det3d": _pv_det3d,
-          "plane3d": _pv_plane3d}[task]
+          "keyframe3d": _pv_plane3d, "plane3d": _pv_plane3d}[task]
     n = fn(pv, rdir, imgs, task, a.limit)
     print(f"[OK] preview：{n} 例已输出到 {pv}（recipe {rec}，任务 {task}）" if n
           else f"[WARN] 没有生成任何预览（数据或依赖缺失，见上方提示）")
@@ -994,7 +1005,7 @@ def main() -> None:
                     help="软链登记既有影像目录（<case>.nrrd）至 processed/<recipe>/images，不复制")
     sp.set_defaults(func=cmd_scaffold)
 
-    sp = sub.add_parser("import-planes", help="z 索引 mapping JSON -> plane3d planes.json")
+    sp = sub.add_parser("import-planes", help="z 索引 mapping JSON -> keyframe3d planes.json")
     sp.add_argument("mapping", help="mapping JSON：{case: {label: z_index}}")
     sp.add_argument("--dataset", required=True, help="数据集目录（需已 scaffold 且 images 就位）")
     sp.add_argument("--recipe", default="r0")

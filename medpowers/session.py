@@ -30,6 +30,7 @@ import time
 from .lease import machine_identity, remove_lease, write_lease
 from .notify import send_notification
 from .records import ExpError, finish_experiment, normalize_id, start_experiment
+from .studio import ExperimentReporter, StudioClient, load_config
 
 
 class TrainingInterrupted(BaseException):
@@ -42,17 +43,57 @@ class TrainingInterrupted(BaseException):
 
 
 class _Session:
-    """with 块内暴露的句柄：exp_id / lease_path / artifacts（训练中随时追加产物路径）。"""
+    """with 块内暴露的句柄：exp_id / lease_path / artifacts / report_metrics。"""
 
-    def __init__(self, exp_id: str, lease_path, started_at: float):
+    def __init__(self, exp_id: str, lease_path, started_at: float, reporter=None):
         self.exp_id = exp_id
         self.lease_path = lease_path
         self.started_at = started_at   # time.monotonic() 起点
         self.artifacts: list[str] = []
+        self.reporter = reporter
+
+    def report_metrics(self, points) -> None:
+        """推送指标到 Studio（尽力而为；未配置 Studio 时静默跳过）。"""
+        if self.reporter is not None:
+            try:
+                self.reporter.log_metrics([dict(p) for p in points])
+            except Exception:
+                pass
 
 
 def _slugify(s: str) -> str:
     return re.sub(r"[^a-z0-9-]+", "-", s.lower()).strip("-")
+
+
+def _make_reporter(exp_id: str, studio_task: str, *, runtime, machine: str,
+                   note: str, task: str, ids: list[int], log):
+    """按 runtime/studio.json 构造上报器；未配置/构造失败都返回 None，不影响训练。"""
+    if not studio_task:
+        return None
+    try:
+        cfg = load_config(runtime)
+        if not cfg:
+            return None
+        client = StudioClient.from_config(cfg)
+        # 训练进程内的上报是尽力而为：短超时、不重试，失败立即进本地队列，
+        # 避免 Studio 不可达时拖慢训练启动/指标记录。
+        client.timeout = min(float(client.timeout), 5.0)
+        client.retries = 0
+        reporter = ExperimentReporter(
+            client,
+            exp_id,
+            studio_task,
+            runtime=runtime,
+            repo_key=str(cfg.get("repo_key", "")),
+            machine=machine,
+            title=note or task,
+            log=log,
+        )
+        reporter.start(config={"task": task, "gpus": ids})
+        return reporter
+    except Exception as e:  # 尽力而为：Studio 不可用绝不阻断训练
+        log(f"[警告] Studio 上报初始化失败（{type(e).__name__}: {e}），本次训练不推送 Studio")
+        return None
 
 
 @contextlib.contextmanager
@@ -61,25 +102,31 @@ def training_session(experiment: str, *, task: str = "", slug: str = "",
                      log_path: str = "", machine: str | None = None,
                      exp_dir: str | None = None, runtime: str | None = None,
                      install_signals: bool = True, allow_offline: bool = False,
-                     log=print):
+                     studio_task: str = "", log=print):
     """全接管会话（见模块 docstring）。results_fn 在收尾时调用、返回 dict 指标（异常
-    路径也会尽力调用一次）；artifacts 可在参数给足，也可训练中经 s.artifacts 追加。"""
+    路径也会尽力调用一次）；artifacts 可在参数给足，也可训练中经 s.artifacts 追加。
+    studio_task 指定 Studio 任务（= 模型）时，训练进程会把实验状态与指标镜像到 Studio
+    （尽力而为，失败进本地队列，绝不影响训练）。"""
     exp_id = normalize_id(experiment)  # 格式非法直接抛，训练不得开始
     ids = [int(g) for g in (gpus or [])]
     lease_slug = _slugify(slug or task) or exp_id.lower()
+    machine_name = machine if machine is not None else machine_identity(runtime)
 
     # ---- 进入：门禁 → lease → 通知（任何门禁失败都让 with 块根本不执行）----
-    start_experiment(exp_id, gpus=ids,
-                     machine=machine if machine is not None else machine_identity(runtime),
+    start_experiment(exp_id, gpus=ids, machine=machine_name,
                      exp_dir=exp_dir, allow_offline=allow_offline, log=log)
     try:
         lease_path = write_lease(lease_slug, task=task, experiment=exp_id, gpus=ids,
-                                 machine=machine, runtime=runtime,
+                                 machine=machine_name, runtime=runtime,
                                  repo=os.getcwd(), log=log_path or "")
     except Exception as e:
         raise ExpError(f"lease 写入失败（{e}）：记录已转 running 但训练未启动——"
                        "请人工处理（修正后重试，或 cancel 该实验）") from e
     send_notification("start", gpus=ids, experiment=exp_id, note=note, runtime=runtime)
+    reporter = _make_reporter(
+        exp_id, studio_task, runtime=runtime, machine=machine_name,
+        note=note, task=task, ids=ids, log=log,
+    )
 
     state = {"signals": 0}
 
@@ -101,7 +148,7 @@ def training_session(experiment: str, *, task: str = "", slug: str = "",
             except (ValueError, OSError):
                 pass  # 非主线程等场景装不上：跳过信号钩子，保留异常路径收尾
 
-    session = _Session(exp_id, lease_path, time.monotonic())
+    session = _Session(exp_id, lease_path, time.monotonic(), reporter=reporter)
     if artifacts:
         session.artifacts.extend(str(a) for a in artifacts)
     try:
@@ -134,6 +181,11 @@ def _wrap_up(session: _Session, status: str, why: str, results_fn, ids: list[int
         except Exception as e:  # 收尾路径里的结果收集失败不掩盖训练本身的结局
             log(f"[警告] results_fn 收集指标失败（{type(e).__name__}: {e}），本次落账不含指标")
     merged_note = "；".join(x for x in (note, why) if x)
+    if session.reporter is not None:
+        try:
+            session.reporter.finish(status, notes=merged_note)
+        except Exception as e:  # 尽力而为：Studio 失败不影响训练收尾
+            log(f"[警告] Studio 实验状态上报失败（{type(e).__name__}: {e}），已进本地队列")
     try:
         finish_experiment(session.exp_id, status, results=results,
                           artifacts=session.artifacts or None, note=merged_note,

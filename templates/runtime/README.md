@@ -6,16 +6,17 @@
 
 ## 布局
 
-- `env.json`：**初始化结果**（由技能 `skills/init-env` 写入）：任务画像（目标、影像模态、2D/2.5D/3D 维度、任务类型——**用户必答的问卷结果**，未答复不得完成初始化）、GPU 静态清单（index/name/显存总量）、每张卡是否归本训练目录可用（用户答复或默认全部可用）、Python 训练环境状态（PyTorch + CUDA 张量是否验证通过、解释器位置）。由任务仓库自行决定是否纳入其 git 管理，是训练环境与任务画像的单一事实源。
+- `env.json`：**初始化结果**（由技能 `skills/init-env` 写入）：任务画像（目标、影像模态、2D/2.5D/3D 维度、任务类型——**用户必答的问卷结果**，未答复不得完成初始化）、GPU 静态清单（index/name/显存总量）、每张卡是否归本训练目录可用（用户答复或默认全部可用）、Python 训练环境状态（PyTorch + CUDA 张量是否验证通过、解释器位置）、计算精度能力（`compute_precision`：bf16/fp16/TF32/FP8/MXFP8 实测可用性与训练/推理推荐默认，精度策略正本见插件 `methods/precision-policy.md`）。由任务仓库自行决定是否纳入其 git 管理，是训练环境、任务画像与精度选择的单一事实源。
 - `data.json`：**数据管理状态**（由技能 `skills/data-mgmt` 写入）：`data_root`（数据统一根目录，默认任务仓库工作区下的 `<工作区>/data`，用户可改，答复原文随记）+ 全部数据集的登记表（路径/任务类型/维度/recipes）。任务仓库通过此表引用数据，**不复制数据**。由任务仓库自行决定是否纳入其 git 管理。
 - `notify.json`：**训练通知配置**（由技能 `skills/notify` 写入）：`enabled`、`machine_name`（这台机器的名称，用户在 init-env 问卷告知；既用于通知文案，也是实验记录与 lease 中机器指代的正名来源）、`webhook{type,url,secret}`（至少支持飞书机器人，可选加签密钥）。**文件不存在或 `enabled=false` 时通知组件不生效**——所有 send 动作自动跳过且不报错。webhook URL 含敏感 token，是否纳入任务仓库 git 由任务仓库自行决定。
+- `studio.json`：**Studio 连接配置**（由技能 `skills/studio` 的设备码授权写入）：`base_url`、`repo_key`（训练仓库标识；一个仓库一个，多机共用）、`scopes`、`machine_name`、`allow_insecure_http`、`verify_tls`、`ca_bundle`。**token 不在本文件**：明文保存在同目录 `studio.token`（0600）或环境变量 `MEDPOWERS_STUDIO_TOKEN`，绝不进 git/实验记录/日志。文件不存在时 Studio 推送自动跳过。Studio 是数据/标注的唯一事实源，训练仓库只读 + 申请复核；git 中的 EXP 记录仍是实验事实的权威，Studio 只做可视化镜像。
 - `gpu/`：预留。动态 GPU 信息（利用率/温度/进程等）不持久化，需要时实时 `nvidia-smi`。
-- `versions.json`：**版本指针**。具名版本（baseline/sota/current 等）→ EXP 编号（格式 `EXP-<NNN>`，与实验记录编号一致）、任务仓库、checkpoint 路径、指标、配置文档路径；「回滚到基线/切到 sota」即读此文件。
+- `versions.json`：**版本指针**。按模型（Studio task_code）分组，`models.<task_code>.{baseline,sota,current}`；条目含 EXP 编号（`EXP-<NNN>`）、任务仓库、checkpoint 路径、指标、配置文档，可选 `studio_eval_id`/`dataset_version`/`report_sha256`。「回滚到基线/切到 sota」即读此文件。
 - `training/`：**训练信息**。每个进行中的训练任务一个 lease JSON，文件名用任务 slug（如 `bc3seg-abdomen-unet3.json`）。
 
 ## 初始化
 
-环境首次使用时运行技能 `skills/init-env`（**先问任务画像，用户必须全部答复后才会继续**；随后询问可用卡、检查并按需 uv 初始化 PyTorch + CUDA 环境、询问训练通知配置——机器名称与 webhook 链接，可不配置），结果落在 `env.json` 与 `notify.json`。重新初始化前注意其中用户答复（任务画像、可用卡、通知配置）不得静默丢失或覆盖（见各 SKILL.md 约束）。
+环境首次使用时运行技能 `skills/init-env`（**先问任务画像，用户必须全部答复后才会继续**；随后询问可用卡、检查并按需 uv 初始化 PyTorch + CUDA 环境、探测 bf16/fp16/TF32/FP8/MXFP8 计算精度能力、询问训练通知配置——机器名称与 webhook 链接，可不配置——以及 MedPowers Studio 对接——地址/repo_key/是否申请复核权限，可不配置），结果落在 `env.json`、`notify.json` 与 `studio.json`。重新初始化前注意其中用户答复（任务画像、可用卡、通知配置）不得静默丢失或覆盖（见各 SKILL.md 约束）。
 
 ## 训练进程必须后台分离运行（强制）
 

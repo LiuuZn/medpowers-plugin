@@ -17,7 +17,25 @@
       "recipes": [],
       "dataset_json": "<工作区>/data/<dataset-slug>/dataset.json",
       "first_registered_at": "登记时自动写入（ISO 8601）",
-      "registered_at": "登记时自动写入（ISO 8601）"
+      "registered_at": "登记时自动写入（ISO 8601）",
+      "studio": {
+        "repo_key": "训练仓库标识",
+        "dataset_code": "Studio dataset code",
+        "task_code": "Studio task code（= 模型）",
+        "dataset_version": "可选：Studio 数据集/导出快照版本",
+        "export_id": "可选：后续导出包 ID",
+        "annotation_revision_range": "可选：参与训练的标注版本范围",
+        "pulled_at": "可选：拉取时间（ISO 8601）"
+      }
+    }
+  },
+  "models": {
+    "<task_code>": {
+      "studio_task": "<task_code>",
+      "datasets": ["<dataset-slug>"],
+      "task_type": "keyframe3d",
+      "local_dir": "<工作区>/data/<dataset-slug>",
+      "notes": "一个 Studio 任务 = 一个模型；一个训练仓库可有多个 models 键"
     }
   }
 }

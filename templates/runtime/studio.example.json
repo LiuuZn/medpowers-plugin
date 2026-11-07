@@ -1,0 +1,16 @@
+{
+  "base_url": "http://10.0.0.20:8000",
+  "repo_key": "spine_locator",
+  "scopes": [
+    "studio:read",
+    "studio:data",
+    "studio:experiment",
+    "studio:evaluate"
+  ],
+  "machine_name": "机器A",
+  "allow_insecure_http": true,
+  "verify_tls": true,
+  "ca_bundle": "",
+  "configured_at": "授权成功时自动写入（ISO 8601）",
+  "notes": "token 明文不写本文件：保存在同目录 studio.token（0600）或 MEDPOWERS_STUDIO_TOKEN。repo_key 是训练仓库标识；一个仓库可有多枚 token（换机/轮换）。申请复核需另加 scope studio:review-request。"
+}

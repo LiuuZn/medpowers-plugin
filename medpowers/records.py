@@ -30,9 +30,11 @@ END_STATUSES = ("done", "interrupted", "cancelled")
 NEW_RE = re.compile(r"^EXP-(\d{3,})-([a-z0-9][a-z0-9-]*)\.md$")
 OLD_RE = re.compile(r"^EXP-(\d{8})-(\d+)-([a-z0-9][a-z0-9-]*)\.md$")
 
-FIELD_ORDER = ("status", "planned_at", "started_at", "ended_at", "machine", "gpus")
+FIELD_ORDER = ("status", "model", "planned_at", "started_at", "ended_at", "machine", "gpus")
 FIELD_RES = {
     "status": re.compile(r"^-[ \t]+\*\*status\*\*:[ \t]*(\S+)[ \t]*$", re.M),
+    # Studio 任务（= 模型）标识；可选，旧记录缺行属正常。
+    "model": re.compile(r"^-[ \t]+\*\*model\*\*:[ \t]*(.*)$", re.M),
     "planned_at": re.compile(r"^-[ \t]+\*\*planned_at\*\*:[ \t]*(.*)$", re.M),
     "started_at": re.compile(r"^-[ \t]+\*\*started_at\*\*:[ \t]*(.*)$", re.M),
     "ended_at": re.compile(r"^-[ \t]+\*\*ended_at\*\*:[ \t]*(.*)$", re.M),

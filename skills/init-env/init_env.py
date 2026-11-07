@@ -4,6 +4,8 @@
 子命令：
     gpu-static                  查询 GPU 静态信息（index/name/显存总量）→ JSON
     check-python [解释器]       检查 PyTorch 与 CUDA 张量可用性 → JSON（通过则退出码 0）
+    probe-precision [解释器]    探测 bf16/fp16/TF32/FP8/MXFP8 能力并给出训练/推理
+                                推荐默认 → JSON（写入 env.json 的 compute_precision）
     init-uv [--python 版本] [--index URL]
                                 用 uv 初始化共享训练环境（pyproject + .venv + torch；
                                 默认走阿里 PyPI 镜像，--index 可换源）
@@ -89,6 +91,98 @@ print(json.dumps(out, ensure_ascii=False))
 '''
 
 
+PROBE_CODE = r'''
+import json
+out = {"devices": [], "dtypes": {}, "runtime": {}, "recommended": {}}
+try:
+    import torch
+    out["torch"] = torch.__version__
+    out["cuda_available"] = bool(torch.cuda.is_available())
+    caps = []
+    if out["cuda_available"]:
+        for i in range(torch.cuda.device_count()):
+            major, minor = torch.cuda.get_device_capability(i)
+            caps.append({
+                "index": i,
+                "name": torch.cuda.get_device_name(i),
+                "capability": f"{major}.{minor}",
+                "sm": major * 10 + minor,
+            })
+    out["devices"] = caps
+    sm = max((c["sm"] for c in caps), default=0)
+    d = out["dtypes"]
+    d["fp16"] = sm >= 70
+    d["bf16"] = sm >= 80
+    d["tf32"] = sm >= 80
+    d["fp8_e4m3"] = sm >= 89 and hasattr(torch, "float8_e4m3fn")
+    d["fp8_e5m2"] = sm >= 89 and hasattr(torch, "float8_e5m2")
+    # MXFP8：硬件需 Blackwell(sm_100+)，且 torch 要具备 E8M0 缩放 dtype；
+    # 这只是能力+dtype 探测，真正启用前还须用推理引擎跑一次 MXFP8 kernel
+    d["mxfp8"] = sm >= 100 and hasattr(torch, "float8_e8m0fnu")
+    if d["mxfp8"]:
+        out["runtime"]["mxfp8_note"] = "capability+dtype only; verify engine-level MXFP8 kernel before use"
+
+    if out["cuda_available"]:
+        for dt, key in ((torch.float16, "fp16"), (torch.bfloat16, "bf16")):
+            try:
+                a = torch.randn(64, 64, device="cuda", dtype=dt)
+                c = a @ a
+                d[key + "_matmul_ok"] = bool(torch.isfinite(c).all().item())
+            except Exception:
+                d[key + "_matmul_ok"] = False
+
+        # FP8 实测：_scaled_mm 的参数与 B 布局随 torch 版本变化，逐个变体试
+        if d["fp8_e4m3"] and hasattr(torch, "_scaled_mm"):
+            try:
+                a = torch.randn(64, 64, device="cuda").to(torch.float8_e4m3fn)
+                b = torch.randn(64, 64, device="cuda").to(torch.float8_e4m3fn)
+                sa = torch.tensor(1.0, device="cuda")
+                sb = torch.tensor(1.0, device="cuda")
+                ok = False
+                for bb in (b.t(), b):
+                    for style in ("tensor", "scalar"):
+                        try:
+                            if style == "tensor":
+                                o = torch._scaled_mm(a, bb, scale_a=sa, scale_b=sb, out_dtype=torch.bfloat16)
+                            else:
+                                o = torch._scaled_mm(a, bb, sa, sb, out_dtype=torch.bfloat16)
+                            torch.cuda.synchronize()
+                            ok = bool(o.shape == (64, 64))
+                            if ok:
+                                break
+                        except Exception:
+                            continue
+                    if ok:
+                        break
+                d["fp8_matmul_ok"] = ok
+            except Exception as e:
+                d["fp8_matmul_ok"] = False
+                out["runtime"]["fp8_error"] = f"{type(e).__name__}: {e}"
+        else:
+            d["fp8_matmul_ok"] = False
+
+    rec = out["recommended"]
+    if d.get("bf16_matmul_ok"):
+        rec["train"] = "bf16-amp"
+        rec["inference"] = "bf16"
+    elif d.get("fp16_matmul_ok"):
+        rec["train"] = "fp16-amp-gradscaler"
+        rec["inference"] = "fp16"
+    else:
+        rec["train"] = "fp32-tf32" if d.get("tf32") else "fp32"
+        rec["inference"] = "fp32"
+    if d.get("fp8_matmul_ok"):
+        rec["inference_fast"] = "fp8-e4m3"
+    elif d.get("mxfp8"):
+        rec["inference_fast"] = "mxfp8"
+    else:
+        rec["inference_fast"] = rec["inference"]
+except Exception as e:
+    out["error"] = f"{type(e).__name__}: {e}"
+print(json.dumps(out, ensure_ascii=False))
+'''
+
+
 def now():
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
@@ -140,6 +234,35 @@ def cmd_check_python(args):
         report["error"] = "解释器不存在"
     print(json.dumps(report, ensure_ascii=False, indent=2))
     sys.exit(0 if (report["torch"] and report["cuda_tensor_ok"]) else 1)
+
+
+def probe_precision(interpreter):
+    """在指定解释器上探测计算精度能力（bf16/fp16/TF32/FP8/MXFP8），返回报告 dict（不退出）。"""
+    interp = interpreter or (str(VENV_PY) if VENV_PY.exists() else "python3")
+    try:
+        r = subprocess.run([interp, "-c", PROBE_CODE], capture_output=True, text=True, timeout=180)
+        rep = json.loads(r.stdout.strip().splitlines()[-1]) if r.stdout.strip() else {}
+    except (OSError, json.JSONDecodeError, IndexError, subprocess.TimeoutExpired):
+        rep = {}
+    return {
+        "interpreter": interp,
+        "default_target": "user-specified" if interpreter else "uv-venv(.venv)",
+        "torch": rep.get("torch"),
+        "cuda_available": bool(rep.get("cuda_available")),
+        "devices": rep.get("devices", []),
+        "dtypes": rep.get("dtypes", {}),
+        "runtime": rep.get("runtime", {}),
+        "recommended": rep.get("recommended", {}),
+        "error": rep.get("error"),
+    }
+
+
+def cmd_probe_precision(args):
+    report = probe_precision(args.interpreter)
+    if "/" in report["interpreter"] and not Path(report["interpreter"]).exists():
+        report["error"] = "解释器不存在"
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+    sys.exit(0 if (report["torch"] and report["cuda_available"]) else 1)
 
 
 def cmd_init_uv(args):
@@ -205,12 +328,15 @@ def main():
     sub.add_parser("gpu-static", help="查询 GPU 静态信息（index/name/显存总量）")
     cp = sub.add_parser("check-python", help="检查 PyTorch + CUDA 张量可用性")
     cp.add_argument("interpreter", nargs="?", help="解释器路径；缺省时优先 .venv/bin/python，否则 python3")
+    pp = sub.add_parser("probe-precision", help="探测 bf16/fp16/TF32/FP8/MXFP8 能力与推荐默认精度")
+    pp.add_argument("interpreter", nargs="?", help="解释器路径；缺省时优先 .venv/bin/python，否则 python3")
     iu = sub.add_parser("init-uv", help="用 uv 初始化共享训练环境并安装 torch（默认阿里 PyPI 镜像）")
     iu.add_argument("--python", help="venv 使用的 Python 版本（如 3.11）")
     iu.add_argument("--index", help=f"PyPI 镜像源 URL（默认 {DEFAULT_PYPI_INDEX}）")
     sub.add_parser("save", help="从 stdin 读 env.json 内容并原子写入 runtime/env.json")
     args = p.parse_args()
     {"gpu-static": cmd_gpu_static, "check-python": cmd_check_python,
+     "probe-precision": cmd_probe_precision,
      "init-uv": cmd_init_uv, "save": cmd_save}[args.cmd](args)
 
 

@@ -10,16 +10,19 @@
 
 training_session = 全接管会话（start 门禁 → lease → 通知 → finish 落账 → 删 lease →
 通知），两级纪律见 session.py；send_notification / training_lifecycle = 纯通知
-（尽力而为，绝不影响训练）。安装：任务仓库 `uv add <medpowers 副本根>`（插件主导，
-版本随插件）。"""
+（尽力而为，绝不影响训练）。StudioClient / ExperimentReporter = 训练仓库到
+medpowers-studio 的实验/指标镜像（尽力而为，失败进本地队列）。安装：任务仓库
+`uv add <medpowers 副本根>`（插件主导，版本随插件）。"""
 from .lease import machine_identity, read_leases, remove_lease, write_lease
 from .notify import send_notification, training_lifecycle
 from .records import ExpError, finish_experiment, start_experiment
 from .session import TrainingInterrupted, training_session
+from .studio import ExperimentReporter, StudioClient, StudioError
 
 __all__ = [
-    "ExpError", "TrainingInterrupted",
+    "ExpError", "TrainingInterrupted", "StudioError",
     "training_session", "training_lifecycle", "send_notification",
     "start_experiment", "finish_experiment",
+    "StudioClient", "ExperimentReporter",
     "write_lease", "read_leases", "remove_lease", "machine_identity",
 ]

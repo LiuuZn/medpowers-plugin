@@ -142,12 +142,30 @@ uv run python -c "from medpowers import training_session; print('ok')"
 
 （submodule 形态则按 §5 方式一装副本后同样 `uv add ./.agents/medpowers`。）临时应急也可按失效声明补一个兄弟 clone（`git clone <远端URL> /data/lx/mtskills`）后 `uv sync`，但该布局天然不跨机，仍建议尽快改为仓内相对源。
 
+## 6.6 MedPowers Studio 对接（可选，用户授权后生效）
+
+Studio 是数据/标注的唯一事实源；训练仓库只读 + 申请复核。git 中的 EXP 记录仍是实验事实权威，Studio 只做实验/指标/评测的可视化镜像。
+
+1. 用户已在 Studio 网页登录，提供内网地址（如 `http://10.0.0.20:8000`）与仓库标识 `repo_key`。
+2. 在任务仓库工作区执行设备码授权：
+
+```bash
+python3 skills/studio/studio.py auth --url http://10.0.0.20:8000 --repo-key <repo> \
+  [--allow-insecure-http] [--scopes studio:read studio:data studio:experiment studio:evaluate]
+python3 skills/studio/studio.py status
+```
+
+3. 用户浏览器批准后，token 写入 `<工作区>/runtime/studio.token`（0600），配置写入 `runtime/studio.json`；**token 不进 git/实验记录/日志**，建议把 `runtime/studio.token` 加入任务仓库 `.gitignore`（或改用 `MEDPOWERS_STUDIO_TOKEN`）。
+4. 训练入口集成：`training_session(..., studio_task="<task_code>")` 自动推 running/finish；训练循环用 `s.report_metrics([...])` 推指标；评测结果用 `studio eval push`。未配置时自动跳过，推送失败进 `runtime/studio-queue/`，不影响训练。
+5. 标注复核：只有显式申请 `studio:review-request` scope 后，才能 `studio review request`（approved → review_requested；不改标注内容，但移出 approved 金标准池）。
+6. 内网明文 HTTP 会泄露 token：必须让用户明确同意 `--allow-insecure-http`，并确保仅内网受控访问；有 TLS 时配置 `ca_bundle`/`verify_tls`。
+
 ## 7. 安装后必转达用户（智能体不要省略）
 
 1. **第一次使用**：对新任务仓库先运行 init-env 技能——第一件事是**任务画像问卷**（目标、模态、2D/2.5D/3D、任务类型），用户必须全部答复才能继续后续步骤。
-2. **运行时状态外置**：runtime（env.json / data.json / training lease / notify.json）与实验记录（`<工作区>/experiments/`，EXP-NNN）都写在**任务仓库工作区**，绝不写回安装目录、绝不提交进 medpowers 仓库。
+2. **运行时状态外置**：runtime（env.json / data.json / training lease / notify.json / studio.json / studio.token）与实验记录（`<工作区>/experiments/`，EXP-NNN）都写在**任务仓库工作区**，绝不写回安装目录、绝不提交进 medpowers 仓库；`studio.token` 是用户凭证，按密钥保管。
 3. **可视化红线**（全文见安装根 AGENTS.md）：智能体不得把自己的影像视觉判断作为证据；对错判定只来自**程序化测量**与**用户审片反馈**。
-4. **实验记录纪律**：凡经本方法论指导的实验（无论成败）必须三时点记录——`new` 占号 → 训练进程经 `medpowers.training_session` 自己 start/finish（门禁失败训练不开始；指标/产物自动入账；CLI 的 start/finish 仅为训练代码未集成包时的遗留兜底）→ `cancel` 取消；多机同步强制「拉取 → 确认 → 提交并推送」（训练进程经包执行的动作同一套实现）。
+4. **实验记录纪律**：凡经本方法论指导的实验（无论成败）必须三时点记录——`new --task <task_code>` 占号（task_code = 模型）→ 训练进程经 `medpowers.training_session(..., studio_task=...)` 自己 start/finish（门禁失败训练不开始；指标/产物自动入账并镜像 Studio；CLI 的 start/finish 仅为训练代码未集成包时的遗留兜底）→ `cancel` 取消；多机同步强制「拉取 → 确认 → 提交并推送」（训练进程经包执行的动作同一套实现）。
 
 ## 8. 更新
 

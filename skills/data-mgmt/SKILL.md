@@ -1,6 +1,6 @@
 ---
 name: data-mgmt
-description: 数据管理：统一规定训练数据的位置与格式，提供建立、登记、校验、预览、空间报告动作，外加 z 索引标注导入（import-planes）、软链登记源数据（scaffold --link-source）与标注审计工具（label_audit.py）。用户新建/整理/导入训练数据、询问"数据放哪/该存什么格式"、检查数据集完整性、查数据空间占用、导入既有索引式标注、对标注做一致性/上限诊断时使用。数据统一放 runtime/data.json 中 data_root 指定的根目录（默认任务仓库工作区下 <工作区>/data/<dataset>/，用户可改）；3D 默认压缩 NRRD、2D 无损 PNG；按任务类型（3D/2D 分割、2D/3D 分类、3D/2D 包围框检测、3D 关键平面检出）规定目录与标注格式；2.5D 按 3D 存；3D 张量轴序固定 z-y-x（z 轴足→头为第 0 维）；配准暂缓。
+description: 数据管理：统一规定训练数据的位置与格式，提供建立、登记、校验、预览、空间报告动作，外加 z 索引标注导入（import-planes）、软链登记源数据（scaffold --link-source）与标注审计工具（label_audit.py）。用户新建/整理/导入训练数据、询问"数据放哪/该存什么格式"、检查数据集完整性、查数据空间占用、导入既有索引式标注、对标注做一致性/上限诊断时使用。数据统一放 runtime/data.json 中 data_root 指定的根目录（默认任务仓库工作区下 <工作区>/data/<dataset>/，用户可改）；3D 默认压缩 NRRD、2D 无损 PNG；位深与内存精度按 methods/precision-policy.md（raw 保源位深、processed int16/uint16/float32、cache 强度 fp16 + 掩码 uint8、禁止 64 位批量数据）；按任务类型（3D/2D 分割、2D/3D 分类、3D/2D 包围框检测、keyframe3d 关键帧/关键平面；plane3d 为历史别名）规定目录与标注格式；2.5D 按 3D 存；3D 张量轴序固定 z-y-x（z 轴足→头为第 0 维）；配准暂缓。
 ---
 
 # data-mgmt — 数据管理
@@ -43,6 +43,11 @@ description: 数据管理：统一规定训练数据的位置与格式，提供�
 6. 文件名 ASCII、无空格；case_id 全数据集唯一；3D 多模态用通道后缀 `case_0000.nrrd`、`case_0001.nrrd`（nnU-Net 约定），标注文件不带后缀。
 7. **2.5D 按 3D 存**：2.5D 只是建模习惯（逐切片输入/厚层各向异性），不是严谨的数据维度——数据一律存 3D NRRD（真实各向异性 spacing 进 header），切片与邻层上下文由训练侧 dataset 类负责。dataset.json 的 `dimension` 只记 `2d`/`3d`。
 8. `splits/*.json` 是 case_id 的 JSON 数组，train/val/test 划分的唯一事实源（分类的 label 不带 split 列，划分只看这里）。
+9. **NRRD 写出优先 SimpleITK；用 pynrrd 直写有两个坑**（2026-10 quant-breast CESM 配对数据事故：ITK-SNAP 打不开 / spacing 轴向错位）：
+   - `kinds` 只能取 NRRD 固定词表（`space`/`scalar`/`time`/`stub`…），自造名（如 `stack-index-z(pairing)`）teem/ITK-SNAP 解析直接失败；
+   - `nrrd.write(index_order='C')` 时**只有 `sizes` 自动反转**，用户传入的逐轴字段（`space directions`/`spacings`/`kinds`）按**文件轴序 (x,y,z) 原样写盘**（pynrrd 1.1.3 writer 实测）——numpy `(Z,Y,X)` 数组配 `index_order='C'` 时，逐轴字段必须手动逆序传入，否则 z 间距落到 x 轴；且 pynrrd 读回同样原样返回，**roundtrip 一致会掩盖错位**。
+   - 铁律：NRRD 写完必须用目标读取器（SimpleITK，与 ITK-SNAP 同源）逐轴断言 `GetSize()`/`GetSpacing()`，pynrrd 自读自证无效。
+10. **位深与内存精度按 [methods/precision-policy.md](../../methods/precision-policy.md)**：raw 保源位深（DICOM 默认 uint16，少数 int16/uint8，只读无损）；processed 强度正本用 int16/uint16（CT/MR），需要浮点用 float32——**NRRD/NIfTI/ITK 不支持 half，磁盘正本不能写 fp16**；cache 的 `.npy` 强度 fp16、掩码 uint8，创建时显式 `dtype=`。**任何批量数组禁止 float64/int64**：numpy 默认 dtype 不追认（`np.array`→int64、`np.zeros`→float64、`np.mean`→float64，外部库结果先 cast）；框架强制的 int64 索引/标签只在 collate/API 边界临时产生，不得持久化。2D PNG 常规 8-bit，需要保留原始灰度用 16-bit（`I;16`）；已归一化到 [0,1] 的图要无损就存 16-bit 定点或 npy fp16/float32，不能存 8-bit 后声称无损。
 
 ## 各任务类型的格式（processed/<recipe>/ 内）
 
@@ -53,7 +58,7 @@ description: 数据管理：统一规定训练数据的位置与格式，提供�
 | `cls2d` / `cls3d` 分类 | `images/`（PNG / nrrd） | `labels.csv`（表头 case_id,label） | manifest 为权威；多标签加列 |
 | `det3d` 3D 包围框检测 | `images/case_0000.nrrd` | `boxes.json`：每例 `[{label, center_world, size_world}]`（RAS mm） | 世界坐标，loader 变换到体素 |
 | `det2d` 2D 包围框检测 | `images/*.png` | `annotations.json`（COCO 格式） | COCO 生态的评测/可视化工具最全 |
-| `plane3d` 3D 关键平面检出 | `images/case_0000.nrrd` | `planes.json`（schema 见下） | 平面=点+法向（+面内朝向、范围） |
+| `keyframe3d` 3D 关键帧/关键平面 | `images/case_0000.nrrd` | `planes.json`（schema 见下） | 与 Studio `keyframe3d` 统一；`plane3d` 为历史别名，不再新增。平面=点+法向（+面内朝向、范围） |
 
 配准**暂缓**：其标注格式还需按细分类型（刚性/形变、单模/多模、有无合成 GT）分别设计，待细分后再补条目；此前配准数据不套用本规范。
 
@@ -86,13 +91,15 @@ description: 数据管理：统一规定训练数据的位置与格式，提供�
 
 `annotation`（标注契约，**训练开始前必须补全**，含 TODO 视同未补）：`produced_by`（脚本/工具/人工 + 可溯源说明）、`rule`（判定规则的具体定义——含测量平面、ROI、窗宽窗位，如「轴状面上椎体边界围成面积最大的切片」）、`tolerance`（标注粒度/允差，如「±1 片」）、`verified`（是否抽样核验）。规则来自人眼主观描述时，先按 methods/label-ceiling-diagnosis.md 做神谕探针/排名检验校核，再作为 strict 指标优化目标。
 
+`studio`（可选 provenance，从 Studio 拉取/对齐的数据集必须记录）：`repo_key` / `dataset_code` / `task_code`（任务=模型）/ `dataset_version` / `export_id`（后续导出包打通后）/ `annotation_revision_range` / `pulled_at`。**Studio 是数据与标注的唯一事实源**；本地只保存训练副本与 provenance，不回写标注。发现标注可疑时走 Studio 复核申请（`review_requested`），不得改本地标注充当修复。
+
 ## 流程
 
 1. 读 `runtime/data.json`：无 `data_root` → AskUserQuestion 问用户（说明默认 `<工作区>/data`），`set-root` 写入并记答复原文；有 → 直接用。
 2. 与用户确认：数据集名（如 `lung_seg`）、task_type（参照 env.json 的 `task_profile`，但以用户本次答复为准）、模态、recipe 名。
 3. `python3 skills/data-mgmt/manage_data.py scaffold <name> --task-type <t> [--recipe r1] [--modality CT] [--root DIR]`：建骨架 + dataset.json + 标注模板 + README。
 4. （如需）按 `assets/preprocessing` 方法卡做预处理，产物进 `processed/<recipe>/`；recipe 说明回写 dataset.json。
-4b. （plane3d 且已有 z 索引式标注）`import-planes <mapping.json> --dataset <ds> [--seg-dir DIR] [--seg-suffix S]`：把 {case:{label:z_index}} 导入为 planes.json（LPS 影像自动转 RAS；可选分割掩码质心作面内中心）。`scaffold --link-source DIR` 可直接软链登记既有影像目录（单一正本，不复制）。
+4b. （keyframe3d 且已有 z 索引式标注）`import-planes <mapping.json> --dataset <ds> [--seg-dir DIR] [--seg-suffix S]`：把 {case:{label:z_index}} 导入为 planes.json（LPS 影像自动转 RAS；可选分割掩码质心作面内中心）。`scaffold --link-source DIR` 可直接软链登记既有影像目录（单一正本，不复制）。
 4c. **补全 dataset.json 的 `annotation` 标注契约**（produced_by / rule / tolerance / verified）。
 5. `manage_data.py check <path> [--recipe r1] [--deep]`：文件配对、几何一致性、标注值域（--deep）、清单完整性、splits 引用有效性；有 FAIL 先修再往下。
 6. `manage_data.py preview <path> [--recipe r1] [--limit 20]`：生成分割叠加 / 框 / 平面重采样 PNG。

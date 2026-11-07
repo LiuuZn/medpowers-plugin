@@ -26,6 +26,30 @@ def _dir(args) -> Path:
     return R.resolve_dir(getattr(args, "dir", None))
 
 
+def _studio_push(exp_id: str, model: str, status: str, *, machine: str = "",
+                 gpus=None, note: str = "", runtime=None) -> None:
+    """把实验状态镜像到 Studio（尽力而为；未配置或失败都不影响 git 台账）。"""
+    if not model:
+        return
+    try:
+        from .studio import StudioClient, load_config
+        cfg = load_config(runtime)
+        if not cfg:
+            return
+        payload = {
+            "exp_id": exp_id,
+            "task_code": model,
+            "status": status,
+            "machine": machine,
+            "notes": note,
+        }
+        if gpus:
+            payload["config"] = {"gpus": list(gpus)}
+        StudioClient.from_config(cfg).upsert_experiment(payload)
+    except Exception as e:  # noqa: BLE001  镜像失败绝不回滚实验记录
+        print(f"[警告] Studio 镜像失败（不影响实验记录）：{e}", file=sys.stderr)
+
+
 def cmd_new(args) -> int:
     exp_dir = _dir(args)
     exp_dir.mkdir(parents=True, exist_ok=True)
@@ -47,17 +71,26 @@ def cmd_new(args) -> int:
     template = Path(args.template).read_text(encoding="utf-8") if args.template \
         else default_template_path().read_text(encoding="utf-8")
     path.write_text(render_new_record(template, exp_id, slug), encoding="utf-8")
+    if getattr(args, "task", ""):
+        R.set_field(path, "model", args.task.strip())
     refresh_index(exp_dir, records, parse_record(path))
     commit_paths(repo, f"exp({exp_id}): plan", exp_dir)
     print(f"[同步] {sync_push(repo, args.allow_offline)}")
+    _studio_push(exp_id, getattr(args, "task", ""), "planned",
+                 runtime=exp_dir.parent / "runtime")
     print(f"{path.name} 已创建（planned）并提交。规划内容（任务与数据/配置）请尽快填入记录。")
     return 0
 
 
 def cmd_start(args) -> int:
     gpus = [int(g) for g in (args.gpus.split(",") if args.gpus else [])] or None
-    start_experiment(args.exp, gpus=gpus, machine=args.machine or "",
-                     exp_dir=getattr(args, "dir", None), allow_offline=args.allow_offline)
+    res = start_experiment(args.exp, gpus=gpus, machine=args.machine or "",
+                           exp_dir=getattr(args, "dir", None),
+                           allow_offline=args.allow_offline)
+    rec = parse_record(path) if (path := Path(res["path"])).exists() else {}
+    runtime = (Path(args.dir).parent / "runtime") if getattr(args, "dir", None) else None
+    _studio_push(res["id"], rec.get("model", ""), "running",
+                 machine=args.machine or "", gpus=gpus, runtime=runtime)
     print("[遗留兜底] 正路是训练框架经 medpowers.training_session 在训练进程内 start（门禁失败训练不开始）；"
           "本命令仅用于训练代码未集成包的过渡期。")
     print(f"接下来按 lease 协议写 lease（experiment 字段引用 {normalize_id(args.exp)}），再后台分离启动训练。")
@@ -69,6 +102,10 @@ def cmd_finish(args) -> int:
                             exp_dir=getattr(args, "dir", None), allow_offline=args.allow_offline)
     if not res["pushed"] and not res.get("offline"):
         raise ExpError(res["push_note"])  # 硬推送失败 = 动作未完成；--allow-offline 豁免除外
+    rec = parse_record(Path(res["path"])) if Path(res["path"]).exists() else {}
+    runtime = (Path(args.dir).parent / "runtime") if getattr(args, "dir", None) else None
+    _studio_push(res["id"], rec.get("model", ""), res["status"],
+                 machine=rec.get("machine", ""), note=args.note or "", runtime=runtime)
     print("[遗留兜底] 正路是训练框架经 training_session 在训练进程内 finish（指标/产物/时长自动入账）；"
           "本命令仅用于训练代码未集成包的过渡期。")
     print(f"{res['id']} → {res['status']}（ended_at 已填）。确认结果/诊断/下一轮决策/产物已填入记录。")
@@ -94,6 +131,9 @@ def cmd_cancel(args) -> int:
     refresh_index(exp_dir, records, rec)
     commit_paths(repo, f"exp({exp_id}): cancel", exp_dir)
     print(f"[同步] {sync_push(repo, args.allow_offline)}")
+    _studio_push(exp_id, rec.get("model", ""), "cancelled",
+                 machine=rec.get("machine", ""), note=args.reason,
+                 runtime=exp_dir.parent / "runtime")
     print(f"{exp_id} → cancelled。编号永久占用，不再复用。")
     return 0
 
@@ -280,6 +320,7 @@ def main(argv=None) -> int:
     p = sub.add_parser("new", help="规划实验：分配编号建 planned 记录")
     p.add_argument("--dir", help="记录目录（默认 $MEDPOWERS_EXPERIMENTS 或 ./experiments）")
     p.add_argument("--slug", required=True, help="短横线小写短语，如 unet3d-baseline")
+    p.add_argument("--task", default="", help="Studio 任务 code（= 模型）；写入 model 字段并镜像 planned")
     p.add_argument("--template", help="模板路径（默认插件 experiments/TEMPLATE.md）")
     _add_sync_flag(p)
     p.set_defaults(fn=cmd_new)

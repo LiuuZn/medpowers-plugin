@@ -18,17 +18,19 @@ medpowers/
 │   ├── base-model-selection.md       # 第一步：如何选择基础模型
 │   ├── training-state-diagnosis.md   # 第二步：结合损失/目标行为诊断训练状态
 │   ├── label-ceiling-diagnosis.md    # 插步：模型平台期先测标注一致性上限
-│   └── next-config-recommendation.md # 第三步：给出潜在的更好训练逻辑/配置
+│   ├── next-config-recommendation.md # 第三步：给出潜在的更好训练逻辑/配置
+│   └── precision-policy.md           # 贯穿约束：数据格式与计算精度（64 位禁用、存储/训练/推理默认精度、切换验收）
 ├── experiments/             # 实验记录规范：本仓库只跟踪 TEMPLATE.md 模板
 │   └── TEMPLATE.md          # 单条实验记录模板（记录与 INDEX.md 归任务仓库，绝不进本仓库 git）
 ├── medpowers/               # Python 包：训练运行时客户端（实验记录生命周期 + GPU lease + 训练通知的进程内实现，随插件整仓分发）
 │   ├── notify.py            # 通知（尽力而为，绝不影响训练）：training_lifecycle / send_notification
 │   ├── records.py           # 实验记录核心 + start_experiment / finish_experiment 库 API（门禁语义：失败即停）
 │   ├── lease.py             # GPU lease 原子写/读/删（机器正名 = notify.json 的 machine_name）
-│   ├── session.py           # training_session 全接管会话：门禁→lease→start 通知→训练→finish 落账→删 lease→通知
+│   ├── session.py           # training_session 全接管会话：门禁→lease→start 通知→训练→finish 落账→删 lease→通知（可镜像 Studio）
+│   ├── studio.py            # Studio 客户端：设备码授权/任务就绪/实验与指标推送/外部评测/复核申请/离线队列
 │   ├── exp_cli.py           # agent 侧实验记录 CLI（new/cancel/list/check/migrate；start/finish 遗留兜底）
-│   ├── cli.py / __main__.py # 统一 CLI 入口（medpowers notify … / medpowers exp …）
-│   └── tests/               # 包测试（notify/records/lease/session；python3 -m unittest discover -s medpowers/tests -t .）
+│   ├── cli.py / __main__.py # 统一 CLI 入口（medpowers notify … / medpowers exp … / medpowers studio …）
+│   └── tests/               # 包测试（notify/records/lease/session/studio；python3 -m unittest discover -s medpowers/tests -t .）
 ├── pyproject.toml           # 包定义：hatchling，版本动态读 .claude-plugin/plugin.json（单一事实源）；任务仓库经 uv add <副本根> 安装
 ├── README.md                # 人类入口：插件安装与 git 安装（.agents/medpowers）、更新与发版纪律
 ├── INSTALL.md               # 安装手册（AI Agent 执行版）：两种安装模式的事实源，README「通过 AI Agent 安装」提示词指向它
@@ -39,8 +41,9 @@ medpowers/
 │   ├── self-update/         # ④ 自更新：git 拉取最新主分支（只快进；runtime 外改动拒绝更新；仅服务 git 安装副本）
 │   ├── badcase-analysis/   # ⑤ bad case 定位范式+错误案例分析包：定位分层→溯源→重建→遴选→渲染→打包
 │   ├── seg-error-topology/ # ⑥ 分割误差空间分布画像：FP/FN 按 GT 归一化相对坐标沿各轴分箱（端部/偏向/外溢/局部漏检率）
-│   └── notify/             # ⑦ 训练通知组件（实现在 medpowers 包，本目录脚本为薄启动器）：start/finish/interrupt 信号由训练代码内嵌发送（training_session / training_lifecycle），经 webhook（至少飞书，可选加签）推送；智能体仅发 cancel 与 stale lease 兜底；init-env 问卷配置，用户不告知则不生效
-├── hooks/                   # 插件 hook：SessionStart 注入方法论红线摘要（可视化红线/实验记录三时点（git 管理）/lease 三确认/训练后台分离）+ 自查插件下载日期（安装根目录 mtime），超一周未更新时注入"每次回复末尾友好提醒检查更新"的会话级指令（尽力而为，任何取值失败静默跳过）
+│   ├── notify/             # ⑦ 训练通知组件（实现在 medpowers 包，本目录脚本为薄启动器）：start/finish/interrupt 信号由训练代码内嵌发送（training_session / training_lifecycle），经 webhook（至少飞书，可选加签）推送；智能体仅发 cancel 与 stale lease 兜底；init-env 问卷配置，用户不告知则不生效
+│   └── studio/             # ⑧ MedPowers Studio 对接（实现在 medpowers 包，本目录脚本为薄启动器）：设备码授权/任务=模型就绪查询/实验与指标镜像/外部评测推送/标注复核申请（approved→review_requested）/离线队列；init-env 问卷配置，用户不接入则不生效
+├── hooks/                   # 插件 hook：SessionStart 注入方法论红线摘要（可视化红线/数据与计算精度/实验记录三时点（git 管理）/lease 三确认/训练后台分离）+ 自查插件下载日期（安装根目录 mtime），超一周未更新时注入"每次回复末尾友好提醒检查更新"的会话级指令（尽力而为，任何取值失败静默跳过）
 ├── templates/runtime/       # 任务仓库 <工作区>/runtime/ 的协议模板（README + 各 *.example.json，init-env 初始化时拷入）
 ├── .claude-plugin/          # 插件与市场清单（仓库即市场；plugin.json 的 version 是唯一事实源，发版纪律见 README.md）
 │   ├── plugin.json
@@ -51,7 +54,7 @@ medpowers/
 ```
 
 
-各资产/方法目录的 README 定义了条目格式与收录范围，新增条目前先读对应 README。技能放 `skills/<name>/`（一技能一目录：SKILL.md 用 frontmatter 的 name/description 定义触发条件与步骤，脚本放同目录），现有技能：**init-env**（初始化环境：**第一件事是任务画像问卷**——目标、医疗影像模态、2D/2.5D/3D 建模维度、分割/分类/配准等任务类型，用户必须全部答复才能继续后续步骤；然后查 GPU 静态清单、询问可用卡并记录、检查/按需 uv 初始化 PyTorch+CUDA 环境（默认走阿里 PyPI 镜像，`--index` 可换源），结果写入任务仓库工作区的 `runtime/env.json`）。**data-mgmt**（数据管理：数据统一放 `runtime/data.json` 的 `data_root` 下（默认任务仓库工作区下的 `<工作区>/data/<dataset>/`，用户可改）；三层存储 raw/processed/cache；3D 默认压缩 NRRD、2D 无损 PNG、分割标注 uint8、几何标注世界坐标 JSON；按 seg3d/seg2d/cls2d/cls3d/det3d/det2d/plane3d 规定格式，2.5D 按 3D 存，配准暂缓；scaffold/register/check/preview/du/set-root/import-planes 七个动作 + label_audit.py 标注审计（柱内面积剖面/排名检验/审片图）；dataset.json 含 `annotation` 标注契约字段（produced_by/rule/tolerance/verified，训练前必填））。**exp-mgmt**（实验记录管理：规划时分配任务仓库内全局唯一编号 EXP-001 起递增、建 planned 记录并 git 提交（提交即占号）；安排训练前必须过 start 编号门禁转 running 再写 GPU lease；finish 补全 done/interrupted；cancel 取消且编号不复用；全部变更动作强制多机同步——拉取远端→在最新台账上确认→提交后立即推送，推送成功才算动作完成，防多机重复/漏记实验；list 从记录自动生成 INDEX.md；check 校验编号唯一/状态合法/INDEX 一致/lease 引用存在且 running；migrate 迁移旧格式 EXP-YYYYMMDD-序号-slug 记录（重编号+补齐时间字段+改写 versions.json 引用+悬空引用报告）；记录必须提交进任务仓库 git，绝不纳入本仓库 git）。**self-update**（自更新：通过 git 拉取本仓库最新主分支，更新脚本所在的当前副本——源副本或训练仓库 `.agents/medpowers` 的安装副本均可；只快进、runtime/ 外本地改动拒绝更新、runtime/ 内自动 stash→pop；插件安装模式的更新由各平台插件管理器完成，本技能只服务于 git 安装副本；安装方式见 README.md）。**badcase-analysis**（错误案例分析与标注质量工程，内含项目无关的 **bad case 定位范式**：
+各资产/方法目录的 README 定义了条目格式与收录范围，新增条目前先读对应 README。技能放 `skills/<name>/`（一技能一目录：SKILL.md 用 frontmatter 的 name/description 定义触发条件与步骤，脚本放同目录），现有技能：**init-env**（初始化环境：**第一件事是任务画像问卷**——目标、医疗影像模态、2D/2.5D/3D 建模维度、分割/分类/配准等任务类型，用户必须全部答复才能继续后续步骤；然后查 GPU 静态清单、询问可用卡并记录、检查/按需 uv 初始化 PyTorch+CUDA 环境（默认走阿里 PyPI 镜像，`--index` 可换源）、探测 bf16/fp16/TF32/FP8/MXFP8 计算能力（`probe-precision`，写入 `compute_precision`），并询问 MedPowers Studio 对接（地址/repo_key/是否申请复核权限，可不配置，写入 `runtime/studio.json`），结果写入任务仓库工作区的 `runtime/env.json`）。**data-mgmt**（数据管理：数据统一放 `runtime/data.json` 的 `data_root` 下（默认任务仓库工作区下的 `<工作区>/data/<dataset>/`，用户可改）；三层存储 raw/processed/cache；3D 默认压缩 NRRD、2D 无损 PNG、分割标注 uint8、几何标注世界坐标 JSON；按 seg3d/seg2d/cls2d/cls3d/det3d/det2d/keyframe3d（plane3d 为历史别名） 规定格式，2.5D 按 3D 存，配准暂缓；scaffold/register/check/preview/du/set-root/import-planes 七个动作 + label_audit.py 标注审计（柱内面积剖面/排名检验/审片图）；dataset.json 含 `annotation` 标注契约字段（produced_by/rule/tolerance/verified，训练前必填）与可选 `studio` provenance（repo_key/dataset_code/task_code/dataset_version/export_id/annotation_revision_range/pulled_at））。**exp-mgmt**（实验记录管理：规划时分配任务仓库内全局唯一编号 EXP-001 起递增、建 planned 记录并 git 提交（提交即占号）；安排训练前必须过 start 编号门禁转 running 再写 GPU lease；finish 补全 done/interrupted；cancel 取消且编号不复用；全部变更动作强制多机同步——拉取远端→在最新台账上确认→提交后立即推送，推送成功才算动作完成，防多机重复/漏记实验；list 从记录自动生成 INDEX.md；check 校验编号唯一/状态合法/INDEX 一致/lease 引用存在且 running；migrate 迁移旧格式 EXP-YYYYMMDD-序号-slug 记录（重编号+补齐时间字段+改写 versions.json 引用+悬空引用报告）；记录必须提交进任务仓库 git，绝不纳入本仓库 git）。**self-update**（自更新：通过 git 拉取本仓库最新主分支，更新脚本所在的当前副本——源副本或训练仓库 `.agents/medpowers` 的安装副本均可；只快进、runtime/ 外本地改动拒绝更新、runtime/ 内自动 stash→pop；插件安装模式的更新由各平台插件管理器完成，本技能只服务于 git 安装副本；安装方式见 README.md）。**badcase-analysis**（错误案例分析与标注质量工程，内含项目无关的 **bad case 定位范式**：
 从 bad case 入手 → 定位问题层级（标注内容/标注管线/预处理/模型/评测）→ 具体问题具体分析；
 八步闭环 = 单例取证假设判别 → 独立参照的绝对位置审计 → 全量扫描+富集分析 → 上游元数据
 溯源 → 管线重建而非打补丁 → 双通道独立验证 → 保守分层治理 → 修复与重训批准点隔离；
@@ -89,6 +92,19 @@ send；配置由 init-env 问卷采集（用户告知机器名称与 webhook 链
 `send_notification` 进程内 API（通知路径绝不抛异常）；**两级纪律**——通知是尽力而为（失败
 重试 1 次后放弃、短超时，绝不影响训练），而记录门禁（start_experiment）是失败即停；webhook
 URL 含敏感 token，不写入实验记录与提交信息）。
+**studio**（MedPowers Studio 对接，实现在 medpowers 包 `medpowers/studio.py`：Studio 是**数据与标注
+的唯一事实源**，训练仓库只读、**永远不改标注内容**；发现可疑标注只能申请人工复核——token 需
+`studio:review-request` scope，状态 approved→review_requested，内容/revision 不变但立即移出
+approved 金标准池，复核通过后恢复；一个 Studio 任务 = 一个模型，一个训练仓库可对应多个 task，
+本地 EXP 记录的 `model` 字段、`versions.json` 的 `models.<task_code>`、`data.json` 的 models 索引
+都用 task_code；**git 中的 EXP 记录是实验事实权威，Studio 只做实验/指标/评测结果的可视化镜像**
+（`training_session(..., studio_task=...)` 自动推 running/finish，`s.report_metrics()` 推任意数值
+指标，外部评测结果 `studio eval push`；推送尽力而为、失败进 `runtime/studio-queue/`，绝不影响
+训练）；token 按仓库粒度（`repo_key`）、跟随用户，像 API key 一样保管，明文只存
+`<工作区>/runtime/studio.token`（0600）或 `MEDPOWERS_STUDIO_TOKEN`，绝不进 git/记录/日志；
+Studio 仅内网受控部署，明文 HTTP 必须显式 `allow_insecure_http` 并确认风险；设备码授权
+`studio auth`、`status`、`tasks`/`task` 就绪报告、`exp/metrics/eval push`、`review request`、
+`sync-exp` 为常备动作；init-env 问卷配置，用户不接入则组件不生效）。
 `skills/` 之外，本仓库自身的开发管理技能放 `.agents/skills/`（智能体自动发现路径）：**git-mgmt**（双远端布局——**origin=私有 GitLab，默认推送目标**；github=公有 GitHub 开源发布远端，仅当用户**当次明确指示**才允许推送，脚本层还需 `--publish` 双确认；未指明远端时一律推 origin，可以提醒用户"是否发布到 GitHub"但提醒不等于授权；含 conventional commits 中文提交规范、安装副本只拉不推、发布前泄露面扫描；status/push/add-github/check/validate 五个动作，validate 负责发布前插件清单与收录边界校验）。
 
 
@@ -99,14 +115,38 @@ URL 含敏感 token，不写入实验记录与提交信息）。
 - 对错判定只允许来自两类渠道：**程序化测量**（分割掩码统计、几何计算、指标数值）与**用户审片反馈**；
 - 报告与实验记录中涉及影像的证据，只能写程序化信号与用户审片结论，不得写智能体的视觉印象（如"图中可见××"）。
 
+## 数据与计算精度红线（强制，对所有技能、方法与实验记录生效）
+
+正本：[methods/precision-policy.md](methods/precision-policy.md)。要点：
+
+- **64 位批量数据零容忍**：影像、掩码、特征、cache、GPU 张量一律不用 `float64`/`int64`；numpy 默认 dtype 不追认（创建显式 `dtype=`，外部库输出先 cast）。唯一例外是框架强制的 int64 索引/标签（CE target、one_hot、gather/scatter 的 index），只允许在 API 边界临时产生、不得持久化；spacing/origin/JSON 世界坐标等 double 标量不受影响，但不得转 float64 数组做批量运算。
+- **存储按位深够用**：raw 保源位深（DICOM 默认 uint16/int16，只读）；processed 正本 int16/uint16（需要浮点用 float32——NRRD/NIfTI/ITK 不支持 half），fp16 用于 `.npy` cache 与内存/GPU 张量；掩码一律 uint8。
+- **CT/MR 的 fp16 边界**：-1024…+4096 的物理范围在 fp16 范围内（max 65504），但 fp16 整数精确只到 ±2048；逐值精确的 HU 阈值/钙化评分必须在 int16/fp32 上做，窗宽窗位归一化之后再转 fp16。
+- **训练默认速度优先**：AMP + bf16 优先（无 GradScaler）；bf16 不可用用 fp16+GradScaler 或 fp32+TF32；主权重/优化器/损失/指标归约保持 fp32；fp16 大体积 `sum` 会溢出 65504，先 `float()`。FP8 训练仅在框架支持且精度验收通过时使用。
+- **推理默认速度优先**：常规 bf16（可用时 FP8），极速 FP8 E4M3；MXFP8 需 Blackwell（sm_100+），**RTX 4090 是 Ada sm_89，不支持 MXFP8**（FP8 可用，可靠路径是 TensorRT）。切 FP8 前必须与 bf16/fp32 基线在同一验证集比 Dice/HD95/ASSD，容差预先写进实验记录。
+- **环境能力以探测为准**：init-env 的 `probe-precision` 把 bf16/fp16/TF32/FP8/MXFP8 实测可用性写入 `runtime/env.json` 的 `compute_precision`；精度选择必须写进实验记录「训练配置」栏。
+
 ## 核心方法论（一次训练调优的完整回路）
 
 1. **选基础模型**（methods/base-model-selection.md）：根据任务画像（模态、2D/2.5D/3D、数据量级、目标结构尺度、显存预算；画像由 init-env 问卷采集，见任务仓库 `<工作区>/runtime/env.json` 的 `task_profile`）从 assets/models 中选出主选 + 备选，写明理由。
-2. **训练并诊断**（methods/training-state-diagnosis.md）：智能体做训练前三确认（见下「资源调度」），确认训练入口已内嵌 `medpowers.training_session`（全接管：训练进程自己过 start 编号门禁→写 GPU lease→发开始通知→训练→finish 落账→删 lease→发结束/中断通知；runtime 状态落任务仓库 `<工作区>/runtime/training/`），然后在任务仓库**以后台分离方式启动训练**（`setsid`/`nohup`/tmux 做 OS 级分离——训练是长任务而智能体会话无法长期驻留，绝不能作为会话的前台子进程，见协议模板「训练进程必须后台分离运行」节），启动后验证进程存活与日志增长；训练结束后依据训练/验证曲线，**特别是不同损失函数与目标函数下的行为差异**（含不可导指标与可导目标是否背离），判断当前训练状态（欠拟合/过拟合/lr 失当/损失失衡/收敛平台等）。
+2. **训练并诊断**（methods/training-state-diagnosis.md）：智能体做训练前三确认（见下「资源调度」），确认训练入口已内嵌 `medpowers.training_session`（全接管：训练进程自己过 start 编号门禁→写 GPU lease→发开始通知→训练→finish 落账→删 lease→发结束/中断通知；runtime 状态落任务仓库 `<工作区>/runtime/training/`），然后在任务仓库**以后台分离方式启动训练**（`setsid`/`nohup`/tmux 做 OS 级分离——训练是长任务而智能体会话无法长期驻留，绝不能作为会话的前台子进程，见协议模板「训练进程必须后台分离运行」节），启动后验证进程存活与日志增长；训练/推理的精度一律按 `methods/precision-policy.md`（默认速度优先：训练 AMP+bf16，推理 bf16 / FP8，敏感归约 fp32）。训练结束后依据训练/验证曲线，**特别是不同损失函数与目标函数下的行为差异**（含不可导指标与可导目标是否背离），判断当前训练状态（欠拟合/过拟合/lr 失当/损失失衡/收敛平台等）。
 3. **推荐下一轮**（methods/next-config-recommendation.md）：将诊断结果映射为具体的训练逻辑/配置变更（变更优先级：损失与超参 → 预处理 → 模型），并给出验证变更是否生效的预期信号。
 4. **记录实验（三时点）**：规划时经 exp-mgmt `new` 分配全局唯一编号建 `planned` 记录；训练启动与收尾由训练进程经 `medpowers.training_session` 自动完成（start 门禁转 `running`、finish 落账 `done`/`interrupted`，指标/产物/时长自动入账）；取消用 `cancel`（智能体）；训练结束后智能体把诊断与下一轮决策补写进记录，规范见下；然后回到第 1 步循环。
 
-> **前置契约**：训练开始前必须具备 (a) 数据集登记中的 `annotation` 标注契约；(b) 实验记录「验收口径」栏。模型进入平台期时先按 `methods/label-ceiling-diagnosis.md` 测标注一致性上限。具名优秀版本更新任务仓库 `<工作区>/runtime/versions.json`（baseline/sota/current）。
+> **前置契约**：训练开始前必须具备 (a) 数据集登记中的 `annotation` 标注契约；(b) 实验记录「验收口径」栏。模型进入平台期时先按 `methods/label-ceiling-diagnosis.md` 测标注一致性上限。具名优秀版本更新任务仓库 `<工作区>/runtime/versions.json`（按模型：`models.<task_code>.{baseline,sota,current}`，条目可带 Studio eval 来源）。
+
+## MedPowers Studio 对接（数据/标注事实源 + 实验可视化）
+
+Studio 是医疗影像数据「管、标、训、评」平台（FastAPI 后端 + 标注工作台 + 导出/评估）。本插件通过 `skills/studio`（实现在 `medpowers/studio.py`）对接，红线与口径如下：
+
+- **职责边界**：Studio 是**数据与金标准标注的唯一事实源**；训练仓库只读、**永远不改标注内容**。git 中的 `EXP-<NNN>` 记录是**实验事实的权威**；Studio 只做实验状态、训练指标、评测结果的**只读可视化镜像**，不提供实验正文编辑。两者用 `(repo_key, exp_id)` 关联，Studio 侧存 `record_path`/`record_sha256` 便于回溯。
+- **任务 = 模型**：Studio 的一个 Task 对应一个模型。一个训练仓库可对应多个 Task；`task_code` 是模型标识，用于 EXP 记录的 `model` 字段、`versions.json` 的 `models.<task_code>`、`data.json` 的 models 索引与 Studio 查询。规划实验用 `exp-mgmt new --task <task_code>`。
+- **授权**：token 按**仓库粒度**（`repo_key`）发放、跟随用户，像 API key 一样保管；明文只存 `<工作区>/runtime/studio.token`（0600）或 `MEDPOWERS_STUDIO_TOKEN`，**绝不进 git/实验记录/日志**。设备码授权由 `skills/studio` 的 `auth` 动作完成，用户在 Studio 网页批准；scope 最小集为 `studio:read`/`studio:data`/`studio:experiment`/`studio:evaluate`，只有需要申请复核时才加 `studio:review-request`。Studio 仅内网受控部署，明文 HTTP 必须显式确认风险。
+- **标注复核**：训练侧发现可疑标注只能 `review request`：`approved → review_requested`，标注内容/revision/掩码不变，但立即移出 approved 金标准池（不参与后续导出/评测），复核通过后恢复、驳回则回到标注员工作区。服务端拒绝 token 的标注内容写入与审核/撤回操作。
+- **实验与指标镜像**：`training_session(..., studio_task="<task_code>")` 在训练进程内自动推送 running/finish；训练代码用 `s.report_metrics([{name,value,step,split,class?,tags?}])` 推任意数值指标；外部评测结果用 `studio eval push`（`source=external`，明确区分 Studio 原生评测）。推送**尽力而为**：失败进 `runtime/studio-queue/`，`sync-exp` 补推，绝不影响训练与 git 台账；服务端幂等（同 `(exp,name,split,class,step)` 覆盖）。
+- **数据状态读取**：`studio tasks` / `studio task <task_code>` 返回 approved/pending/review_requested 计数、逐类病例、QC、标注契约完整性；`approved` 才是训练金标准，`review_requested` 已移出池。本轮 P0 不做数据导出/下载与 Studio 原生评测，训练数据仍按 data-mgmt 本地管理；导出包后续与 Studio 强耦合。
+- **配置**：`<工作区>/runtime/studio.json`（base_url/repo_key/scopes/machine_name/allow_insecure_http/verify_tls/ca_bundle），由 init-env 问卷采集；文件不存在时所有 Studio 推送自动跳过。schema 见 `templates/runtime/studio.example.json`。
+- **禁止**：把 token/webhook 等密钥写入实验记录、提交信息或日志；以智能体视觉判断替代 Studio 程序化评测；绕过 Studio 直接改标注；把 Studio 当模型仓库（不托管 checkpoint；`versions.json` 仍在训练仓库）。
 
 ## 实验记录规范（强制，三时点，git 管理）
 
@@ -114,12 +154,12 @@ URL 含敏感 token，不写入实验记录与提交信息）。
 - **三时点**：①规划——`new` 分配编号建 `planned` 记录（填任务与数据、本轮配置决策），提交即占号，即使训练还没排上；②训练启动——**由训练进程经 `medpowers.training_session` 自己完成**：入口处过 `start` 编号门禁（拉取→校验编号唯一与 planned 状态→转 `running`→提交推送；失败自行退出，训练不得开始），随后写自己的 GPU lease（真实 pid，`experiment` 字段引用该编号，`machine`/`gpus` 结构化字段同步入账）——智能体在三确认后直接后台分离启动已内嵌 session 的训练入口；③结束——训练进程 `finish` 落账（`done`/`interrupted`，指标/产物/时长/中断原因自动入账），智能体随后补写诊断与下一轮决策。规划后决定不训用 `cancel`（`cancelled`，编号永久占用不复用，注明理由）。exp-mgmt CLI 的 `start`/`finish` 是训练代码未集成包时的**遗留兜底**。
 - **多机同步（拉取-确认-提交，强制）**：任务仓库 git 远端是多台机器唯一的实验台账事实源，严防多机重复/遗漏实验。exp-mgmt 全部变更动作（new/start/finish/cancel/list/migrate）由脚本强制「**拉取**（fetch+快进；分叉、rebase 未完成、远端不可达默认拒绝执行，`--allow-offline` 显式豁免）→ **确认**（编号唯一与状态校验都在拉取后的最新台账上进行，他机已占用编号/已 start 同一实验即拒绝）→ **提交并推送**（提交后立即推送；**推送未成功视为动作未完成**——推送成功前不得写 GPU lease、不得视实验为已登记/已完结）」；无上游远端的单机仓库自动跳过同步；`check` 兜底警告未推送提交与落后远端。**训练进程经 medpowers 包执行的 start/finish 用同一套同步实现，红线完全一致**。**查询/汇报路径同样先同步（强制）**：回答"哪些实验在跑/可以进行/进展如何"这类状态问题前，先拉取任务仓库最新主分支（fetch+快进，只读不提交）——本地台账可能滞后于他机已推送的 running/结论，据以汇报会把别机已启动的实验误报为 planned；lease 与 `nvidia-smi` 只反映本机 GPU，跨机状态以拉取后的台账为准，两者合并才是全项目状态。
 - **编号纪律**：分配一律走 `new`（扫描取 max+1，提交即占号），禁止手工挑号；存在旧格式 `EXP-YYYYMMDD-<序号>-<slug>` 记录时 `new`/`start` 拒绝执行，先用 `migrate` 迁移（重编号 + 改名 + 补齐 v2 时间字段 + 改写 versions.json 引用 + 报告悬空引用）。`check` 兜底校验：编号唯一、状态与时间字段合法、INDEX 一致、lease 引用存在且 running。
-- 记录须包含：任务与数据、模型选择理由、预处理与目标配置、结果曲线特征、诊断与证据、下一轮决策、产物（checkpoint/log）在任务仓库中的位置。
+- 记录须包含：任务与数据、模型选择理由、预处理与目标配置、训练与推理精度（AMP dtype / TF32 / FP8 与引擎）、结果曲线特征、诊断与证据、下一轮决策、产物（checkpoint/log）在任务仓库中的位置。使用 Studio 时另填 `model`（Studio task_code）与「Studio 数据与评测来源」块（dataset/task/export/eval、dataset_version、report_sha256、GT 状态）；Studio 只做镜像，正文与诊断仍以本记录为准。
 - **机器指代用配置名，禁称"本机"**：实验记录、GPU lease 与 exp 提交信息是多机共读的共享台账，提到训练在哪台机器执行时一律用任务仓库 `<工作区>/runtime/notify.json` 的 `machine_name` 值称呼（如"机器A 的 GPU 0"），禁止"本机"字样；`machine_name` 未配置时用 `hostname` 输出兜底并建议配置。
 
 ## 资源调度（文件系统，协议模板见 templates/runtime/README.md）
 
-- 目的：给所有智能体提供"哪些任务正在训练、占用哪张卡多少显存"的上下文，避免撞卡。哪些卡归本训练目录可用，以任务仓库 `<工作区>/runtime/env.json`（初始化时用户答复的记录）为准。
+- 目的：给所有智能体提供"哪些任务正在训练、占用哪张卡多少显存"的上下文，避免撞卡。哪些卡归本训练目录可用，以任务仓库 `<工作区>/runtime/env.json`（初始化时用户答复的记录）为准。规划训练/选模型前可用 `skills/studio` 的 `task <task_code>` 查看 Studio 数据就绪（approved 数、逐类病例、QC、标注契约）；这些是**规划输入**，不替代本机 GPU 三确认。
 - 协议三步：**训练前（智能体）**读任务仓库 `<工作区>/runtime/training/` 全部 lease 并用 `nvidia-smi` 实测（快照不能替代实测），三确认（env.json 可用性 + 无冲突 lease + 实测空闲）都满足才启动，并确认训练入口已内嵌 `medpowers.training_session`；**启动时**训练进程必须后台分离启动（`setsid`/`nohup`/tmux 脱离智能体会话，会话终止不得连带杀掉训练，日志重定向到文件），进程入口经包先过 start 编号门禁（失败自行退出），再原子写一个 lease JSON（任务、机器名、GPU、**分离后真实训练进程自身 pid**、起止时间、日志位置；机器名 = `notify.json` 的 `machine_name`，未配置用 hostname）到 `<工作区>/runtime/training/`；**结束时（训练进程，经包）**finish 落账后立即删除自己的 lease。
 - lease 是声明式参考，不是硬锁；真实占用以 `nvidia-smi` 为准。stale lease（进程已不存在）核对 pid 后可直接清理。只有训练和长时间占 GPU 的任务需要登记，短时推理不必。
 - lease 与 `nvidia-smi` **只反映本机**：哪些实验在整个项目里处于 running，跨机唯一事实源是任务仓库 git 的实验台账（见上「多机同步」）——查询/汇报训练状态前先拉取同步，再读本机 lease 与实测合并汇报。
@@ -133,7 +173,7 @@ URL 含敏感 token，不写入实验记录与提交信息）。
 
 ## 环境事实（未来 agent 必须知道）
 
-- GPU：2× NVIDIA RTX 4090（每卡约 23 GB）。本仓库虽不训练，但推荐配置时必须按此预算约束任务仓库的 batch/模型规模（优先 AMP）。
+- GPU：2× NVIDIA RTX 4090（Ada sm_89，每卡约 23 GB；bf16/fp16/TF32/FP8 E4M3 可用，MXFP8 需 Blackwell 不支持）。本仓库虽不训练，但推荐配置时必须按此预算约束任务仓库的 batch/模型规模（优先 AMP + bf16，见 methods/precision-policy.md）。
 - Python：系统 python3.12 无 torch。兄弟项目一律用 **uv**（pyproject.toml + uv.lock + 每项目 .venv）；训练环境同样默认 uv，由技能 init-env 检查并按需初始化在**任务仓库工作区**（pyproject + `.venv`，未指定解释器时），实际可用性以任务仓库 `<工作区>/runtime/env.json` 为准（技能 init-env 检查并维护）。**medpowers Python 包**随插件整仓分发，init-env 在训练环境就绪后把它装进任务仓库，版本与插件严格一致（pyproject 动态读 plugin.json）。**源必须跨机可解析（硬规则）**：默认仓内相对源（各机备 `.agents/medpowers` 副本后 `uv add ./.agents/medpowers`）或 git tag 依赖；兄弟目录相对路径（`../mtskills`）与插件缓存绝对路径仅写入机有效，不得进多机共享 pyproject——失效源修复流程见 INSTALL.md §6.5。
 - **Git 布局**：本目录自 2026-10-05 起是**独立 git 仓库**（默认分支 `main`，repo-local 身份 `liuxin <liuxin@local>`）。双远端：**origin = 私有 GitLab**（日常开发默认推送目标）、**github = 公有 GitHub**（开源发布远端，须用户当次明确指示才可推送）——规则与脚本见 `.agents/skills/git-mgmt/`（本仓库自身的开发管理技能，开发本仓库的智能体自动识别；训练仓库安装副本只拉不推）。它物理上位于 `/ssd/lx` 大仓库的工作区内，但外层仓库不追踪本目录——**本目录内的一切 git 操作都作用于本仓库自身**。安装到训练仓库（submodule 或嵌套 clone 到 `.agents/medpowers`）与更新方法见 README.md；技能 **self-update** 负责拉取最新主分支。**插件分发通道**：仓库根的 `.claude-plugin/` 使本仓库自身即一个插件市场（插件名与市场名均为 medpowers），可经 ZCode / Claude Code / Codex 的插件市场机制安装为用户级插件（命令见 README.md「插件安装」），插件模式下的 runtime/experiments 状态同样外置到任务仓库工作区；无论哪种分发方式，推送 GitHub 发布都须用户当次明确指示。外层 `/ssd/lx` 大仓库仍混有大量无关改动，勿在其中 `git add -A`。
 - 试验场与素材来源：`/ssd/lx` 下的 BC3-seg、totalsegmentator、spine_locator、eat-model 等任务项目，以及 `net_arch/`（架构）、`metrics/metrics.py`（指标）、既有预处理流水（norm → crop3D → resample 2D）——补录资产时从这里起步。
