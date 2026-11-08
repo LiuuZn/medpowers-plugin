@@ -10,6 +10,7 @@ import sys
 import tempfile
 import threading
 import unittest
+import zipfile
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
@@ -22,19 +23,23 @@ from .gitrepo import make_git_repo  # noqa: E402
 class StudioHandler(BaseHTTPRequestHandler):
     calls: list[dict] = []
     fail = False
+    job_polls: dict[str, int] = {}  # job_id → GET 次数（用于模拟状态流转）
 
     @classmethod
     def reset(cls):
         cls.calls = []
         cls.fail = False
+        cls.job_polls = {}
 
     def _body(self):
         length = int(self.headers.get("Content-Length", 0))
-        raw = self.rfile.read(length).decode("utf-8") if length else ""
+        raw = self.rfile.read(length) if length else b""
+        self._raw_body = raw
+        text = raw.decode("utf-8", errors="replace") if raw else ""
         try:
-            return json.loads(raw) if raw else None
+            return json.loads(text) if text else None
         except json.JSONDecodeError:
-            return raw
+            return text
 
     def _respond(self, status: int, payload):
         self.send_response(status)
@@ -45,12 +50,182 @@ class StudioHandler(BaseHTTPRequestHandler):
     def _handle(self, method: str):
         body = self._body()
         StudioHandler.calls.append(
-            {"method": method, "path": self.path, "body": body, "headers": dict(self.headers)}
+            {
+                "method": method,
+                "path": self.path,
+                "body": body,
+                "raw": getattr(self, "_raw_body", b""),
+                "headers": dict(self.headers),
+            }
         )
         if StudioHandler.fail:
             self._respond(503, {"detail": "mock down"})
             return
         path = self.path.split("?", 1)[0]
+        # ---- 数据集接入 ----
+        if path == "/api/scan-protocols":
+            if method == "GET":
+                self._respond(
+                    200,
+                    [
+                        {
+                            "id": "proto-1",
+                            "code": "mr_routine",
+                            "name": "MR 常规",
+                            "modality_scope": ["MR", "CT"],
+                            "is_active": True,
+                        }
+                    ],
+                )
+            else:
+                self._respond(
+                    200,
+                    {
+                        "id": "proto-2",
+                        "code": (body or {}).get("code", "new_proto"),
+                        "name": (body or {}).get("name", ""),
+                        "modality_scope": (body or {}).get("modality_scope", []),
+                        "is_active": True,
+                    },
+                )
+        elif path == "/api/datasets" and method == "GET":
+            self._respond(
+                200,
+                [
+                    {
+                        "id": "ds-uuid-1",
+                        "code": "mr_knee",
+                        "name": "膝关节 MR",
+                        "modality": "MR",
+                        "dimension": "3d",
+                        "data_kind": "volume3d",
+                        "status": "draft",
+                        "case_count": 0,
+                        "patient_count": 0,
+                        "study_count": 0,
+                    }
+                ],
+            )
+        elif path == "/api/datasets" and method == "POST":
+            self._respond(
+                201,
+                {
+                    "id": "ds-uuid-2",
+                    "code": (body or {}).get("code", "ds"),
+                    "name": (body or {}).get("name", ""),
+                    "modality": (body or {}).get("modality", "MR"),
+                    "dimension": "3d",
+                    "data_kind": "volume3d",
+                    "scan_protocol_id": (body or {}).get("scan_protocol_id", ""),
+                    "status": "draft",
+                    "case_count": 0,
+                    "patient_count": 0,
+                    "study_count": 0,
+                },
+            )
+        elif path == "/api/datasets/ds-uuid-1" and method == "GET":
+            self._respond(
+                200,
+                {
+                    "id": "ds-uuid-1",
+                    "code": "mr_knee",
+                    "name": "膝关节 MR",
+                    "modality": "MR",
+                    "dimension": "3d",
+                    "data_kind": "volume3d",
+                    "status": "draft",
+                    "case_count": 3,
+                    "patient_count": 2,
+                    "study_count": 2,
+                    "scan_protocol": {"id": "proto-1", "code": "mr_routine"},
+                },
+            )
+        elif path == "/api/datasets/ds-uuid-1/import-jobs" and method == "GET":
+            self._respond(200, [])
+        elif path == "/api/datasets/ds-uuid-1/import-jobs/job-9" and method == "GET":
+            job_id = "job-9"
+            StudioHandler.job_polls[job_id] = StudioHandler.job_polls.get(job_id, 0) + 1
+            n = StudioHandler.job_polls[job_id]
+            status = ("queued", "running", "succeeded")[min(n - 1, 2)]
+            self._respond(
+                200,
+                {
+                    "id": job_id,
+                    "dataset_id": "ds-uuid-1",
+                    "status": status,
+                    "imported": 3 if status == "succeeded" else 0,
+                    "skipped": 0,
+                    "converted": 0,
+                    "stored_bytes": 0,
+                    "report": {},
+                    "error": None,
+                },
+            )
+        elif path == "/api/datasets/ds-uuid-1/import-jobs" and method == "POST":
+            self._respond(
+                202,
+                {
+                    "id": "job-9",
+                    "dataset_id": "ds-uuid-1",
+                    "source_type": "path",
+                    "source_path": (body or {}).get("path", ""),
+                    "recursive": True,
+                    "status": "queued",
+                    "imported": 0,
+                    "skipped": 0,
+                    "converted": 0,
+                    "stored_bytes": 0,
+                    "report": {},
+                    "error": None,
+                },
+            )
+        elif path.endswith("/ready") and method == "POST":
+            self._respond(
+                200,
+                {
+                    "id": "ds-uuid-1",
+                    "code": "mr_knee",
+                    "status": "ready",
+                    "case_count": 3,
+                },
+            )
+        elif path.endswith("/import-path") and method == "POST":
+            self._respond(
+                200,
+                {
+                    "imported": 3,
+                    "skipped": 1,
+                    "converted": 0,
+                    "stored_bytes": 1234,
+                    "errors": [],
+                    "cases": ["case-a", "case-b", "case-c"],
+                    "warnings": [],
+                },
+            )
+        elif path.endswith("/import-upload") and method == "POST":
+            raw = getattr(self, "_raw_body", b"")
+            ok = b'name="file"' in raw and raw.find(b"PK\x03\x04") != -1
+            if not ok:
+                self._respond(400, {"detail": "mock：multipart 中没有 ZIP 文件"})
+            else:
+                self._respond(
+                    200,
+                    {
+                        "imported": 2,
+                        "skipped": 0,
+                        "converted": 0,
+                        "stored_bytes": 99,
+                        "errors": [],
+                        "cases": ["case-a", "case-b"],
+                        "warnings": [],
+                    },
+                )
+        elif path == "/api/datasets/ds-uuid-1" and method != "GET":
+            self._respond(404, {"detail": "数据集不存在"})
+        elif path.startswith("/api/datasets/"):
+            self._respond(404, {"detail": "数据集不存在"})
+        if path == "/api/scan-protocols" or path.startswith("/api/datasets"):
+            return  # 数据集接入路由已响应，不再落入下方通用路由
         if path == "/api/auth/device/code":
             base = f"http://127.0.0.1:{self.server.server_address[1]}"
             self._respond(
@@ -329,6 +504,124 @@ class StudioTest(unittest.TestCase):
         client.request_review("ann-1", "边界可疑", evidence={"dice": 0.4}, eval_id="local-1")
         self.assertTrue(StudioHandler.calls[-1]["path"].endswith("/request-review"))
         self.assertEqual(StudioHandler.calls[-1]["body"]["reason"], "边界可疑")
+
+    # ---- 数据集接入 ----
+
+    def test_zip_for_upload_skips_hidden_and_macosx(self):
+        src = self.tmp / "src"
+        (src / "SERIES1").mkdir(parents=True)
+        (src / "SERIES1" / "1.dcm").write_bytes(b"dcm")
+        (src / "SERIES1" / ".hidden").write_bytes(b"x")
+        (src / "__MACOSX").mkdir()
+        (src / "__MACOSX" / "junk").write_bytes(b"x")
+        zip_path, is_temp = studio.zip_for_upload(src, self.tmp)
+        self.assertTrue(is_temp)
+        with zipfile.ZipFile(zip_path) as zf:
+            names = zf.namelist()
+        self.assertEqual(names, ["SERIES1/1.dcm"])
+        # 已是 zip 的文件原样返回，不再打包
+        same, is_temp2 = studio.zip_for_upload(zip_path, self.tmp)
+        self.assertFalse(is_temp2)
+        self.assertEqual(same, zip_path)
+
+    def test_dataset_create_resolves_protocol_by_code(self):
+        client = self._client()
+        result = client.create_dataset(
+            {
+                "code": "mr_knee",
+                "name": "膝关节 MR",
+                "modality": "MR",
+                "scan_protocol_id": "proto-1",
+            }
+        )
+        self.assertEqual(result["code"], "mr_knee")
+        call = StudioHandler.calls[-1]
+        self.assertEqual(call["method"], "POST")
+        self.assertEqual(call["path"], "/api/datasets")
+        self.assertEqual(call["body"]["scan_protocol_id"], "proto-1")
+
+    def test_dataset_import_upload_streams_multipart_zip(self):
+        src = self.tmp / "knee"
+        (src / "S1").mkdir(parents=True)
+        (src / "S1" / "1.dcm").write_bytes(b"PKfake" + b"0" * 5000)
+        client = self._client()
+        zip_path, is_temp = studio.zip_for_upload(src, self.tmp)
+        report = client.import_upload("ds-uuid-1", zip_path, acknowledge_source_discarded=True)
+        self.assertEqual(report["imported"], 2)
+        call = next(c for c in StudioHandler.calls if c["path"].endswith("/import-upload"))
+        self.assertEqual(call["method"], "POST")
+        ctype = call["headers"].get("Content-Type", "")
+        self.assertTrue(ctype.startswith("multipart/form-data; boundary="))
+        raw = call["raw"]
+        self.assertIn(b'name="file"', raw)
+        self.assertIn(b'filename="', raw)
+        self.assertIn(b'name="acknowledge_source_discarded"', raw)
+        self.assertIn(b"true", raw.split(b'name="acknowledge_source_discarded"')[1][:40])
+        self.assertIn(b"PK\x03\x04", raw)  # ZIP 魔数在请求体里
+        declared = int(call["headers"].get("Content-Length", 0))
+        self.assertEqual(declared, len(raw))  # 流式上传的长度声明必须与实际一致
+
+    def test_resolve_dataset_id_falls_back_to_code(self):
+        client = self._client()
+        self.assertEqual(studio._resolve_dataset_id(client, "ds-uuid-1"), "ds-uuid-1")
+        # code 直查 404 → 从列表按 code 命中
+        self.assertEqual(studio._resolve_dataset_id(client, "mr_knee"), "ds-uuid-1")
+        with self.assertRaises(studio.StudioError):
+            studio._resolve_dataset_id(client, "no_such")
+
+    def test_import_job_requires_confirm_backup_at_cli(self):
+        studio.save_config(self.runtime, self.cfg, token="mps_test_token")
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            code = studio.main(
+                [
+                    "dataset", "import", "--dataset", "ds-uuid-1",
+                    "--server-path", "/imports/knee", "--async",
+                    "--runtime", str(self.runtime),
+                ]
+            )
+        self.assertEqual(code, 1)
+        self.assertIn("--confirm-backup", err.getvalue())
+        self.assertFalse(
+            any(c["path"].endswith("/import-jobs") and c["method"] == "POST"
+                for c in StudioHandler.calls)
+        )
+
+    def test_dataset_import_async_and_wait(self):
+        studio.save_config(self.runtime, self.cfg, token="mps_test_token")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = studio.main(
+                [
+                    "dataset", "import", "--dataset", "ds-uuid-1",
+                    "--server-path", "/imports/knee", "--async", "--wait",
+                    "--confirm-backup", "--runtime", str(self.runtime),
+                ]
+            )
+        self.assertEqual(code, 0)
+        self.assertIn("已创建", out.getvalue())
+        self.assertIn("succeeded", out.getvalue())
+
+    def test_wait_import_job_polls_until_terminal(self):
+        client = self._client()
+        job = client.wait_import_job(
+            "ds-uuid-1", "job-9", timeout=10, poll=0.01, log=lambda _: None
+        )
+        self.assertEqual(job["status"], "succeeded")
+        self.assertEqual(job["imported"], 3)
+
+    def test_dataset_ready_and_show(self):
+        studio.save_config(self.runtime, self.cfg, token="mps_test_token")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = studio.main(
+                ["dataset", "ready", "--dataset", "mr_knee", "--runtime", str(self.runtime)]
+            )
+        self.assertEqual(code, 0)
+        self.assertIn("ready", out.getvalue())
+        self.assertTrue(
+            any(c["path"] == "/api/datasets/ds-uuid-1/ready" for c in StudioHandler.calls)
+        )
 
 
 if __name__ == "__main__":

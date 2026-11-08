@@ -9,7 +9,7 @@
 > **选基础模型 → 诊断训练状态 → 推荐下一轮配置** 的完整调优闭环，
 > 以任务无关的知识资产 + 方法论 + 智能体技能的形式分发。
 
-![version](https://img.shields.io/badge/version-v0.14.0-0A7BFF)
+![version](https://img.shields.io/badge/version-v0.15.0-0A7BFF)
 ![platforms](https://img.shields.io/badge/platforms-ZCode%20%C2%B7%20Claude%20Code%20%C2%B7%20Codex-8757FF)
 ![assets](https://img.shields.io/badge/assets-41%20%E5%8D%A1-16A34A)
 ![skills](https://img.shields.io/badge/skills-8%20%E4%B8%AA-EA580C)
@@ -108,9 +108,9 @@ flowchart LR
 | [`badcase-analysis`](skills/badcase-analysis/) | bad case 定位范式 + 八步闭环（取证→审计→富集→溯源→重建→双验证→分层治理→批准点隔离），五类错误各遴选 3–5 例渲染打包 | 开始前必读任务仓库自身的分析要求 |
 | [`seg-error-topology`](skills/seg-error-topology/) | 分割误差空间分布画像——FP/FN 按 GT 归一化相对坐标沿各轴分箱（端部/偏向/外溢/局部漏检率），结论直接喂下一轮配置 | CLI 配对清单 + 函数级 API |
 | [`notify`](skills/notify/) | 训练通知组件——start/finish/interrupt 由训练进程内嵌 medpowers 包发送（training_session / training_lifecycle），webhook 推送（飞书可选加签）；智能体仅发 cancel 与 stale lease 兜底，尽力而为、绝不影响训练 | set / disable / status / send / test |
-| [`studio`](skills/studio/) | MedPowers Studio 对接——数据/标注唯一事实源（训练侧只读 + 复核申请）、任务=模型就绪查询、实验/指标镜像、外部评测结果推送；git 记录仍是实验权威，Studio 只做可视化 | auth / status / tasks / task / exp / metrics / eval / review / sync-exp |
+| [`studio`](skills/studio/) | MedPowers Studio 对接——数据/标注唯一事实源（训练侧只读 + 复核申请）、任务=模型就绪查询、实验/指标镜像、外部评测结果推送、**数据集接入**（本地 DICOM/NRRD 推上 Studio 建库导入，需 `studio:dataset-manage`）；git 记录仍是实验权威，Studio 只做可视化 | auth / status / tasks / task / exp / metrics / eval / review / sync-exp / datasets / protocol / dataset（create·import·jobs·ready） |
 
-另有 `hooks/`（会话启动注入方法论红线摘要 + 插件更新自查提醒）、`templates/runtime/`（GPU lease 协议等运行时模板）。Studio 对接的职责边界、scope、指标/评测 schema 与 P0 API 见 [`docs/studio-integration-contract.md`](docs/studio-integration-contract.md)。本仓库自身的开发管理技能（双远端 git 规范）单独放 `.agents/skills/git-mgmt/`。
+另有 `hooks/`（会话启动注入方法论红线摘要 + 插件更新自查提醒）、`templates/runtime/`（GPU lease 协议等运行时模板）。Studio 对接的职责边界、scope、指标/评测 schema 与 P0/P1 API 见 [`docs/studio-integration-contract.md`](docs/studio-integration-contract.md)。本仓库自身的开发管理技能（双远端 git 规范）单独放 `.agents/skills/git-mgmt/`。
 
 ## 实验记录规范（强制，三时点，git 管理）
 
@@ -137,16 +137,16 @@ flowchart LR
 把下面一行提示词复制给你的 AI 助手（Claude Code、Codex、Cursor、Trae、ZCode 等），它会拉取**安装手册** [INSTALL.md](INSTALL.md) 并自动完成安装与验证——插件安装、装进训练仓库（submodule / 嵌套 clone）两种模式都由手册覆盖：
 
 ```
-帮我安装 medpowers：https://gitlab.suoyin.info/liuxin/medpowers/-/raw/main/INSTALL.md
+帮我安装 medpowers：https://gitlab.suoyin.info/medpowers/medpowers-plugin/-/raw/main/INSTALL.md
 ```
 
 ### 手动安装（各平台命令）
 
 | 平台 | 安装方式 |
 |---|---|
-| **ZCode** | Settings → Plugin Marketplace → Add，粘贴本仓库 Git URL（`https://gitlab.suoyin.info/liuxin/medpowers.git`）、GitHub 仓库或本地目录（如 `/ssd/lx/medpowers`） |
-| **Claude Code** | `/plugin marketplace add https://gitlab.suoyin.info/liuxin/medpowers.git`，然后 `/plugin install medpowers@medpowers`（`marketplace add` 也接受本地路径） |
-| **Codex** | `codex plugin marketplace add https://gitlab.suoyin.info/liuxin/medpowers.git` |
+| **ZCode** | Settings → Plugin Marketplace → Add，粘贴本仓库 Git URL（`https://gitlab.suoyin.info/medpowers/medpowers-plugin.git`）、GitHub 仓库或本地目录（如 `/ssd/lx/medpowers`） |
+| **Claude Code** | `/plugin marketplace add https://gitlab.suoyin.info/medpowers/medpowers-plugin.git`，然后 `/plugin install medpowers@medpowers`（`marketplace add` 也接受本地路径） |
+| **Codex** | `codex plugin marketplace add https://gitlab.suoyin.info/medpowers/medpowers-plugin.git` |
 
 安装后技能以 `medpowers:技能名` 命名空间出现（如 `medpowers:init-env`）。
 
@@ -279,7 +279,7 @@ medpowers/
 │   ├── notify.py            #   通知（尽力而为）：training_lifecycle / send_notification
 │   ├── lease.py             #   GPU lease 原子写/读/删
 │   ├── exp_cli.py           #   agent 侧实验记录 CLI（start/finish 为遗留兜底）
-│   ├── studio.py            #   MedPowers Studio 客户端（设备码授权/就绪/实验指标/评测/复核/离线队列）
+│   ├── studio.py            #   MedPowers Studio 客户端（设备码授权/就绪/实验指标/评测/复核/数据集接入/离线队列）
 │   ├── cli.py               #   统一入口（medpowers notify … / medpowers exp … / medpowers studio …）
 │   └── tests/               #   包测试（40 项）
 ├── assets/                  # 任务无关的知识资产（按类型分四类）
@@ -297,7 +297,7 @@ medpowers/
 │   ├── badcase-analysis/    # ⑤ bad case 定位范式 + 八步闭环分析包
 │   ├── seg-error-topology/  # ⑥ 分割误差空间分布画像
 │   ├── notify/              # ⑦ 训练通知（内嵌训练进程发送）
-│   └── studio/              # ⑧ MedPowers Studio 对接（授权/数据就绪/实验指标/评测/复核）
+│   └── studio/              # ⑧ MedPowers Studio 对接（授权/数据就绪/实验指标/评测/复核/数据集接入）
 ├── hooks/                   # 会话 hook：红线摘要注入 + 插件更新自查提醒
 ├── templates/runtime/       # 任务仓库 runtime/ 协议模板（lease 协议正本）
 ├── .claude-plugin/          # 插件与市场清单（仓库即市场）
@@ -311,7 +311,7 @@ medpowers/
 
 <div align="center">
 
-**MEDPOWERS** · 医疗影像小模型训练方法论 · v0.14.0
+**MEDPOWERS** · 医疗影像小模型训练方法论 · v0.15.0
 
 方法论文本与代码不构成医疗建议 · 实验结论以程序化测量与用户审片为准
 

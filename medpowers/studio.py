@@ -17,18 +17,31 @@
     medpowers studio eval push --exp EXP-012 --file eval.json
     medpowers studio review request --annotation <id> --reason "边界可疑" --eval <id>
     medpowers studio sync-exp
+
+数据集接入（把本地影像推上 Studio 建库；需 scope studio:dataset-manage + 管理员账号）：
+    medpowers studio datasets
+    medpowers studio protocols
+    medpowers studio protocol create --code mr_routine --name "MR 常规" --modality MR
+    medpowers studio dataset create --code mr_knee --name "膝关节 MR" --modality MR --protocol mr_routine
+    medpowers studio dataset import --dataset mr_knee --upload /data/knee_mr/   # 目录自动打 ZIP 上传
+    medpowers studio dataset import --dataset mr_knee --server-path /imports/knee_mr --async --wait
+    medpowers studio dataset ready --dataset mr_knee
 """
 from __future__ import annotations
 
 import argparse
 import json
 import os
+import shutil
 import ssl
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
+import zipfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
@@ -39,8 +52,12 @@ STUDIO_FILE = "studio.json"
 TOKEN_FILE = "studio.token"
 QUEUE_DIR = "studio-queue"
 DEFAULT_SCOPES = ["studio:read", "studio:data", "studio:experiment", "studio:evaluate"]
+# 数据集接入（新建/导入/标记就绪/新建扫描流程）：只增不删，且要求令牌所属账号为管理员。
+DATASET_MANAGE_SCOPE = "studio:dataset-manage"
+DATASET_MODALITIES = ["DR", "CT", "MR", "TABLE"]
 SCHEMA_VERSION = "2026-11-07"
 MAX_BATCH = 5000
+DEFAULT_MAX_UPLOAD_MB = 4096  # 与 Studio 端 MEDPOWERS_MAX_UPLOAD_MB 默认值一致
 
 
 class StudioError(Exception):
@@ -123,6 +140,59 @@ def _ssl_context(cfg: dict[str, Any]) -> ssl.SSLContext | None:
     if cfg.get("verify_tls", True):
         return ssl.create_default_context()
     return ssl._create_unverified_context()  # noqa: SLF001  内网自签证书显式豁免
+
+
+class _MultipartBody:
+    """流式 multipart/form-data 体：文件内容不整读进内存，支持 GB 级上传。
+
+    read() 依序返回 前置表单+文件头 → 文件内容分块 → 结束边界；总长度由
+    _multipart_length() 预先算好，作为显式 Content-Length 传给 urllib。
+    """
+
+    def __init__(self, boundary: str, fields: dict[str, str], file_field: str,
+                 file_path: Path, filename: str) -> None:
+        self._chunks: list[bytes] = []
+        crlf = b"\r\n"
+        for name, value in fields.items():
+            self._chunks.append(
+                f"--{boundary}{crlf.decode()}Content-Disposition: form-data; "
+                f'name="{name}"{crlf.decode()}{crlf.decode()}{value}{crlf.decode()}'.encode("utf-8")
+            )
+        self._chunks.append(
+            (
+                f"--{boundary}\r\nContent-Disposition: form-data; name=\"{file_field}\"; "
+                f"filename=\"{filename}\"\r\nContent-Type: application/zip\r\n\r\n"
+            ).encode("utf-8")
+        )
+        self._file = open(file_path, "rb")
+        self._footer = f"\r\n--{boundary}--\r\n".encode("utf-8")
+        self._file_done = False
+        self._footer_sent = False
+
+    def length(self) -> int:
+        size = sum(len(chunk) for chunk in self._chunks) + len(self._footer)
+        size += self._file.seek(0, 2)
+        self._file.seek(0)  # 复位到文件头：length 计算后 read() 要从头读内容
+        return size
+
+    def read(self, size: int = -1) -> bytes:
+        while self._chunks:
+            chunk = self._chunks[0]
+            if size < 0 or len(chunk) <= size:
+                self._chunks.pop(0)
+                return chunk
+            self._chunks[0] = chunk[size:]
+            return chunk[:size]
+        if not self._file_done:
+            data = self._file.read(size if size > 0 else 1024 * 1024)
+            if data:
+                return data
+            self._file.close()
+            self._file_done = True
+        if not self._footer_sent:
+            self._footer_sent = True
+            return self._footer
+        return b""
 
 
 class StudioClient:
@@ -231,6 +301,48 @@ class StudioClient:
                     continue
         raise StudioError(f"连接 Studio 失败：{last_error}")
 
+    def _request_multipart(
+        self,
+        path: str,
+        file_path: Path,
+        filename: str,
+        fields: dict[str, str],
+        timeout: float,
+    ) -> Any:
+        """multipart/form-data 上传（import-upload）。大文件流式读取，不做自动重试。"""
+        boundary = uuid.uuid4().hex
+        body = _MultipartBody(boundary, fields, "file", file_path, filename)
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+            "Content-Length": str(body.length()),
+        }
+        if self.token:
+            headers["Authorization"] = f"Bearer {self.token}"
+        request = urllib.request.Request(
+            self._url(path), data=body, headers=headers, method="POST"
+        )
+        try:
+            with urllib.request.urlopen(
+                request, timeout=timeout, context=self._ssl
+            ) as response:
+                raw = response.read()
+                return json.loads(raw.decode("utf-8")) if raw else None
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            try:
+                parsed = json.loads(detail)
+                if isinstance(parsed, dict):
+                    detail = str(parsed.get("detail") or parsed.get("message") or detail)
+            except json.JSONDecodeError:
+                pass
+            hint = ""
+            if exc.code in (401, 403):
+                hint = "；数据集接入需要 scope studio:dataset-manage 且令牌所属账号为管理员"
+            raise StudioError(f"Studio 返回 {exc.code}：{detail}{hint}") from exc
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            raise StudioError(f"上传失败：{exc}") from exc
+
     # ---- 只读 ----
     def context(self) -> dict[str, Any]:
         return self._request("GET", "/api/auth/context")
@@ -331,6 +443,122 @@ class StudioClient:
             "/api/studio/review-requests",
             params={"status": status, "task_code": task_code or None},
         )
+
+    # ---- 数据集接入（studio:dataset-manage；只增不删） ----
+    def scan_protocols(self) -> list[dict[str, Any]]:
+        return self._request("GET", "/api/scan-protocols")
+
+    def create_scan_protocol(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._request("POST", "/api/scan-protocols", payload)
+
+    def datasets(self, **params: Any) -> list[dict[str, Any]]:
+        return self._request("GET", "/api/datasets", params=params or None)
+
+    def dataset(self, dataset_id: str) -> dict[str, Any]:
+        return self._request("GET", f"/api/datasets/{urllib.parse.quote(dataset_id)}")
+
+    def create_dataset(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._request("POST", "/api/datasets", payload)
+
+    def dataset_ready(self, dataset_id: str) -> dict[str, Any]:
+        return self._request("POST", f"/api/datasets/{urllib.parse.quote(dataset_id)}/ready")
+
+    def import_path(
+        self,
+        dataset_id: str,
+        path: str,
+        *,
+        recursive: bool = True,
+        acknowledge_source_discarded: bool = False,
+    ) -> dict[str, Any]:
+        """服务端本地路径导入（同步）：path 必须是 Studio 容器内可见路径。"""
+        return self._request(
+            "POST",
+            f"/api/datasets/{urllib.parse.quote(dataset_id)}/import-path",
+            {
+                "path": path,
+                "recursive": recursive,
+                "acknowledge_source_discarded": acknowledge_source_discarded,
+            },
+        )
+
+    def import_upload(
+        self,
+        dataset_id: str,
+        file_path: str | Path,
+        *,
+        filename: str = "",
+        acknowledge_source_discarded: bool = False,
+        timeout: float = 1800.0,
+    ) -> dict[str, Any]:
+        """ZIP 包上传导入（同步）。file_path 必须是 .zip（用 zip_for_upload 打包）。"""
+        path = Path(file_path)
+        return self._request_multipart(
+            f"/api/datasets/{urllib.parse.quote(dataset_id)}/import-upload",
+            path,
+            filename or path.name,
+            {"acknowledge_source_discarded": "true" if acknowledge_source_discarded else "false"},
+            timeout=timeout,
+        )
+
+    def import_jobs(self, dataset_id: str) -> list[dict[str, Any]]:
+        return self._request(
+            "GET", f"/api/datasets/{urllib.parse.quote(dataset_id)}/import-jobs"
+        )
+
+    def import_job(self, dataset_id: str, job_id: str) -> dict[str, Any]:
+        return self._request(
+            "GET",
+            f"/api/datasets/{urllib.parse.quote(dataset_id)}/import-jobs/"
+            f"{urllib.parse.quote(job_id)}",
+        )
+
+    def create_import_job(
+        self,
+        dataset_id: str,
+        path: str,
+        *,
+        recursive: bool = True,
+        acknowledge_source_discarded: bool = False,
+    ) -> dict[str, Any]:
+        """服务端本地路径导入（后台任务）。服务端要求 acknowledge_source_discarded=true。"""
+        return self._request(
+            "POST",
+            f"/api/datasets/{urllib.parse.quote(dataset_id)}/import-jobs",
+            {
+                "path": path,
+                "recursive": recursive,
+                "acknowledge_source_discarded": acknowledge_source_discarded,
+            },
+        )
+
+    def wait_import_job(
+        self,
+        dataset_id: str,
+        job_id: str,
+        *,
+        timeout: float = 3600.0,
+        poll: float = 5.0,
+        log: Callable[[str], None] | None = None,
+    ) -> dict[str, Any]:
+        """轮询导入任务直到 succeeded/failed；超时抛错（任务仍在服务端继续）。"""
+        deadline = time.monotonic() + timeout
+        emit = log or (lambda _: None)
+        last_status = ""
+        while True:
+            job = self.import_job(dataset_id, job_id)
+            status = str(job.get("status") or "")
+            if status != last_status:
+                emit(f"导入任务 {job_id}：{status}")
+                last_status = status
+            if status in ("succeeded", "failed"):
+                return job
+            if time.monotonic() > deadline:
+                raise StudioError(
+                    f"等待导入任务超时（>{timeout:g}s）；任务仍在服务端执行，"
+                    f"稍后用 dataset jobs --dataset {dataset_id} 查询"
+                )
+            time.sleep(max(1.0, poll))
 
 
 # ---------- 离线队列 ----------
@@ -504,6 +732,36 @@ class ExperimentReporter:
             },
             lambda: self.client.update_experiment(self.exp_id, payload, self.repo_key),
         )
+
+
+# ---------- 数据打包（import-upload 只收 ZIP） ----------
+
+def zip_for_upload(source: Path, dest_dir: str | Path = "") -> tuple[Path, bool]:
+    """把数据源打包成 Studio import-upload 接受的 ZIP。
+
+    已是 .zip 的文件原样返回（不重复打包）；目录/单文件打包为临时 ZIP（跳过
+    隐藏文件与 __MACOSX，与服务端发现逻辑一致）。返回 (zip 路径, 是否临时文件)，
+    临时文件由调用方负责删除。
+    """
+    source = Path(source).expanduser()
+    if source.is_file() and source.suffix.lower() == ".zip":
+        return source, False
+    target_dir = Path(dest_dir).expanduser() if dest_dir else Path(tempfile.gettempdir())
+    target_dir.mkdir(parents=True, exist_ok=True)
+    zip_path = target_dir / f"mp-upload-{uuid.uuid4().hex[:12]}-{source.name or 'data'}.zip"
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        if source.is_file():
+            zf.write(source, source.name)
+            return zip_path, True
+        if not source.is_dir():
+            raise StudioError(f"数据源不存在：{source}")
+        for path in sorted(source.rglob("*")):
+            if not path.is_file():
+                continue
+            if path.name.startswith(".") or "__MACOSX" in path.parts:
+                continue
+            zf.write(path, path.relative_to(source))
+    return zip_path, True
 
 
 # ---------- 设备码授权 ----------
@@ -713,6 +971,273 @@ def cmd_review_request(args) -> int:
     return 0
 
 
+# ---- 数据集接入命令 ----
+
+_DATASET_PERM_HINT = (
+    "数据集接入需要 scope studio:dataset-manage 且令牌所属账号为管理员；"
+    "重新授权：medpowers studio auth --url <地址> --repo-key <仓库> "
+    f"--scopes <原scope...> {DATASET_MANAGE_SCOPE} [--allow-insecure-http]"
+)
+
+
+def _dataset_guard(fn: Callable[[Any], int]) -> Callable[[Any], int]:
+    """给 403 补上数据集接入的专属提示。"""
+
+    def wrapper(args) -> int:
+        try:
+            return fn(args)
+        except StudioError as exc:
+            if " 403" in str(exc):
+                raise StudioError(f"{exc}\n提示：{_DATASET_PERM_HINT}") from exc
+            raise
+
+    return wrapper
+
+
+def _resolve_dataset_id(client: StudioClient, ref: str) -> str:
+    """数据集引用支持 id 或 code：先按 id 直查，404 再按 code 匹配。"""
+    try:
+        return str(client.dataset(ref).get("id"))
+    except StudioError as exc:
+        if " 404" not in str(exc):
+            raise
+    for item in client.datasets():
+        if item.get("code") == ref:
+            return str(item["id"])
+    raise StudioError(f"数据集不存在（id 或 code 都未命中）：{ref}")
+
+
+def _resolve_protocol_id(client: StudioClient, ref: str, modality: str) -> str:
+    """扫描流程引用支持 id 或 code；未命中时列出可选流程。"""
+    protocols = client.scan_protocols()
+    for item in protocols:
+        if item.get("id") == ref or item.get("code") == ref:
+            if modality in (item.get("modality_scope") or []):
+                return str(item["id"])
+            raise StudioError(
+                f"扫描流程 {ref} 不适用于模态 {modality}（适用："
+                f"{', '.join(item.get('modality_scope') or []) or '不限'}）"
+            )
+    available = "；".join(
+        f"{item.get('code')}（{item.get('name')}，适用 {', '.join(item.get('modality_scope') or [])}）"
+        for item in protocols
+    )
+    raise StudioError(f"扫描流程不存在：{ref}。现有流程：{available or '（无，先 protocol create）'}")
+
+
+def _print_import_report(report: dict[str, Any]) -> int:
+    print(
+        f"导入完成：新增 {report.get('imported', 0)}，跳过 {report.get('skipped', 0)}，"
+        f"转换 {report.get('converted', 0)}，存储 {report.get('stored_bytes', 0)} 字节"
+    )
+    cases = report.get("cases") or []
+    if cases:
+        shown = ", ".join(cases[:10]) + ("…" if len(cases) > 10 else "")
+        print(f"病例（{len(cases)}）：{shown}")
+    for warning in report.get("warnings") or []:
+        print(f"[警告] {warning}")
+    errors = report.get("errors") or []
+    for issue in errors[:20]:
+        print(f"[错误] {issue.get('source')}: {issue.get('message')}")
+    if len(errors) > 20:
+        print(f"…另有 {len(errors) - 20} 条错误未展开")
+    return 1 if errors else 0
+
+
+def _print_job(job: dict[str, Any], prefix: str = "") -> None:
+    report = job.get("report") or {}
+    line = (
+        f"{prefix}任务 {job.get('id')}  status={job.get('status')}  "
+        f"导入 {job.get('imported', 0)}  跳过 {job.get('skipped', 0)}"
+    )
+    print(line)
+    error = job.get("error")
+    if error:
+        print(f"{prefix}错误：{error}")
+    for issue in (report.get("errors") or [])[:10]:
+        print(f"{prefix}[错误] {issue.get('source')}: {issue.get('message')}")
+
+
+@_dataset_guard
+def cmd_datasets(args) -> int:
+    rows = _client(args).datasets(
+        modality=args.modality or None,
+        status=args.status or None,
+        search=args.search or None,
+    )
+    if not rows:
+        print("（无数据集）")
+        return 0
+    for item in rows:
+        print(
+            f"{item.get('id')}\t{item.get('code')}\t{item.get('name')}\t"
+            f"{item.get('modality')}\t{item.get('status')}\t"
+            f"病例={item.get('case_count', 0)}\t患者={item.get('patient_count', 0)}"
+        )
+    return 0
+
+
+@_dataset_guard
+def cmd_protocols(args) -> int:
+    rows = _client(args).scan_protocols()
+    if not rows:
+        print("（无扫描流程，用 protocol create 创建）")
+        return 0
+    for item in rows:
+        print(
+            f"{item.get('id')}\t{item.get('code')}\t{item.get('name')}\t"
+            f"适用={','.join(item.get('modality_scope') or []) or '不限'}\t"
+            f"{'启用' if item.get('is_active') else '停用'}"
+        )
+    return 0
+
+
+@_dataset_guard
+def cmd_protocol_create(args) -> int:
+    result = _client(args).create_scan_protocol(
+        {
+            "code": args.code,
+            "name": args.name,
+            "description": args.description or "",
+            "modality_scope": args.modality,
+        }
+    )
+    print(f"扫描流程已创建：{result.get('code')}（id={result.get('id')}）")
+    return 0
+
+
+@_dataset_guard
+def cmd_dataset_create(args) -> int:
+    client = _client(args)
+    protocol_id = _resolve_protocol_id(client, args.protocol, args.modality)
+    result = client.create_dataset(
+        {
+            "code": args.code,
+            "name": args.name,
+            "description": args.description or "",
+            "modality": args.modality,
+            "scan_protocol_id": protocol_id,
+        }
+    )
+    print(
+        f"数据集已创建：{result.get('code')}（id={result.get('id')}，status={result.get('status')}）"
+    )
+    print("下一步：dataset import 导入病例，全部导入并核对报告后 dataset ready")
+    return 0
+
+
+@_dataset_guard
+def cmd_dataset_show(args) -> int:
+    client = _client(args)
+    item = client.dataset(_resolve_dataset_id(client, args.dataset))
+    protocol = item.get("scan_protocol") or {}
+    print(
+        f"{item.get('code')}（{item.get('name')}）  id={item.get('id')}  "
+        f"modality={item.get('modality')}  {item.get('dimension')}/{item.get('data_kind')}  "
+        f"status={item.get('status')}"
+    )
+    print(
+        f"病例={item.get('case_count', 0)}  患者={item.get('patient_count', 0)}  "
+        f"检查={item.get('study_count', 0)}  流程={protocol.get('code', '?')}"
+    )
+    if item.get("description"):
+        print(f"描述：{item['description']}")
+    for job in client.import_jobs(str(item["id"]))[:5]:
+        _print_job(job, prefix="  最近导入 ")
+    return 0
+
+
+@_dataset_guard
+def cmd_dataset_import(args) -> int:
+    if not args.upload and not args.server_path:
+        raise StudioError("import 需要 --upload <本地路径> 或 --server-path <服务端可见路径> 之一")
+    if args.upload and args.server_path:
+        raise StudioError("--upload 与 --server-path 只能二选一")
+    client = _client(args)
+    dataset_id = _resolve_dataset_id(client, args.dataset)
+
+    if args.upload:
+        source = Path(args.upload).expanduser()
+        if not source.exists():
+            raise StudioError(f"数据源不存在：{source}")
+        zip_path, is_temp = zip_for_upload(source, args.zip_dir or "")
+        try:
+            size_mb = zip_path.stat().st_size / (1024 * 1024)
+            if size_mb > args.max_upload_mb:
+                raise StudioError(
+                    f"ZIP {size_mb:.0f}MB 超过上限 {args.max_upload_mb}MB：拆分数据，"
+                    f"或调大服务端 MEDPOWERS_MAX_UPLOAD_MB，或改用 --server-path"
+                    f"（数据放进 Studio 容器可见路径，如部署约定的 /imports）"
+                )
+            print(f"上传 {zip_path.name}（{size_mb:.1f}MB）…")
+            report = client.import_upload(
+                dataset_id,
+                zip_path,
+                acknowledge_source_discarded=args.confirm_backup,
+                timeout=args.timeout,
+            )
+        finally:
+            if is_temp:
+                zip_path.unlink(missing_ok=True)
+        return _print_import_report(report)
+
+    # --server-path：同步导入或后台任务
+    path = args.server_path
+    if args.async_job:
+        if not args.confirm_backup:
+            raise StudioError(
+                "后台导入任务要求显式 --confirm-backup（服务端要求确认已自行备份原始数据）"
+            )
+        job = client.create_import_job(
+            dataset_id, path, recursive=not args.no_recursive, acknowledge_source_discarded=True
+        )
+        print(f"后台导入任务已创建：{job.get('id')}（status={job.get('status')}）")
+        if args.wait:
+            job = client.wait_import_job(
+                dataset_id, str(job.get("id")), timeout=args.timeout, log=print
+            )
+        _print_job(job)
+        return 1 if job.get("status") == "failed" or job.get("error") else 0
+    report = client.import_path(
+        dataset_id,
+        path,
+        recursive=not args.no_recursive,
+        acknowledge_source_discarded=args.confirm_backup,
+    )
+    return _print_import_report(report)
+
+
+@_dataset_guard
+def cmd_dataset_jobs(args) -> int:
+    client = _client(args)
+    dataset_id = _resolve_dataset_id(client, args.dataset)
+    if args.job:
+        job = client.import_job(dataset_id, args.job)
+        if args.wait:
+            job = client.wait_import_job(dataset_id, args.job, timeout=args.timeout, log=print)
+        _print_job(job)
+        return 1 if job.get("status") == "failed" or job.get("error") else 0
+    jobs = client.import_jobs(dataset_id)
+    if not jobs:
+        print("（该数据集暂无导入任务）")
+        return 0
+    for job in jobs:
+        _print_job(job)
+    return 0
+
+
+@_dataset_guard
+def cmd_dataset_ready(args) -> int:
+    client = _client(args)
+    dataset_id = _resolve_dataset_id(client, args.dataset)
+    item = client.dataset_ready(dataset_id)
+    print(
+        f"数据集 {item.get('code')} 已标记就绪（status={item.get('status')}，"
+        f"病例={item.get('case_count', 0)}）"
+    )
+    return 0
+
+
 def cmd_sync_exp(args) -> int:
     client = _client(args)
     cfg = load_config(args.runtime) or {}
@@ -808,6 +1333,91 @@ def main(argv=None) -> int:
     p = sub.add_parser("sync-exp", help="重放本地离线队列")
     _add_runtime(p)
     p.set_defaults(fn=cmd_sync_exp)
+
+    # ---- 数据集接入（scope studio:dataset-manage + 管理员账号） ----
+    p = sub.add_parser("datasets", help="列出数据集")
+    p.add_argument("--modality", help="按模态过滤（DR/CT/MR/TABLE）")
+    p.add_argument("--status", help="按状态过滤（draft/ready/archived）")
+    p.add_argument("--search", help="按名称/编码模糊搜索")
+    _add_runtime(p)
+    p.set_defaults(fn=cmd_datasets)
+
+    p = sub.add_parser("protocols", help="列出扫描流程")
+    _add_runtime(p)
+    p.set_defaults(fn=cmd_protocols)
+
+    p = sub.add_parser("protocol", help="扫描流程管理")
+    protocol_sub = p.add_subparsers(dest="protocol_cmd", required=True)
+    q = protocol_sub.add_parser("create", help="新建扫描流程（数据集必须绑定流程）")
+    q.add_argument("--code", required=True, help="流程编码，如 mr_routine")
+    q.add_argument("--name", required=True, help="流程名称")
+    q.add_argument(
+        "--modality",
+        nargs="+",
+        required=True,
+        choices=DATASET_MODALITIES,
+        help="适用模态（可多个）",
+    )
+    q.add_argument("--description", default="")
+    _add_runtime(q)
+    q.set_defaults(fn=cmd_protocol_create)
+
+    p = sub.add_parser("dataset", help="数据集接入：建库/导入/就绪")
+    dataset_sub = p.add_subparsers(dest="dataset_cmd", required=True)
+
+    q = dataset_sub.add_parser("create", help="新建数据集（status=draft）")
+    q.add_argument("--code", required=True, help="数据集编码（唯一）")
+    q.add_argument("--name", required=True, help="数据集名称")
+    q.add_argument("--modality", required=True, choices=DATASET_MODALITIES, help="模态")
+    q.add_argument("--protocol", required=True, help="扫描流程 id 或 code（protocols 查看）")
+    q.add_argument("--description", default="")
+    _add_runtime(q)
+    q.set_defaults(fn=cmd_dataset_create)
+
+    q = dataset_sub.add_parser("show", help="查看数据集与最近导入任务")
+    q.add_argument("--dataset", required=True, help="数据集 id 或 code")
+    _add_runtime(q)
+    q.set_defaults(fn=cmd_dataset_show)
+
+    q = dataset_sub.add_parser("import", help="导入病例（上传 ZIP 或服务端路径）")
+    q.add_argument("--dataset", required=True, help="数据集 id 或 code")
+    group = q.add_mutually_exclusive_group(required=True)
+    group.add_argument("--upload", help="本地数据源（目录/文件自动打 ZIP 上传）")
+    group.add_argument(
+        "--server-path",
+        help="Studio 容器内可见路径（部署约定：宿主机 <实例>/imports/ → 容器 /imports，只读）",
+    )
+    q.add_argument(
+        "--async", dest="async_job", action="store_true",
+        help="--server-path 走后台导入任务（大体量数据推荐；令牌并发 ≤3）",
+    )
+    q.add_argument("--wait", action="store_true", help="后台任务创建后轮询等待完成")
+    q.add_argument("--no-recursive", action="store_true", help="不递归子目录")
+    q.add_argument(
+        "--confirm-backup", action="store_true",
+        help="确认已自行备份原始数据（导入为复制，源数据不动；后台任务强制要求）",
+    )
+    q.add_argument("--zip-dir", default="", help="临时 ZIP 存放目录（默认系统临时目录）")
+    q.add_argument(
+        "--max-upload-mb", type=int, default=DEFAULT_MAX_UPLOAD_MB,
+        help=f"上传体积上限提示（默认 {DEFAULT_MAX_UPLOAD_MB}，与服务端默认一致）",
+    )
+    q.add_argument("--timeout", type=float, default=1800.0, help="上传/等待超时秒数")
+    _add_runtime(q)
+    q.set_defaults(fn=cmd_dataset_import)
+
+    q = dataset_sub.add_parser("jobs", help="查看导入任务（可等待完成）")
+    q.add_argument("--dataset", required=True, help="数据集 id 或 code")
+    q.add_argument("--job", help="只看/等待指定任务")
+    q.add_argument("--wait", action="store_true", help="轮询等待直到 succeeded/failed")
+    q.add_argument("--timeout", type=float, default=3600.0, help="等待超时秒数")
+    _add_runtime(q)
+    q.set_defaults(fn=cmd_dataset_jobs)
+
+    q = dataset_sub.add_parser("ready", help="标记数据集就绪（需已有病例）")
+    q.add_argument("--dataset", required=True, help="数据集 id 或 code")
+    _add_runtime(q)
+    q.set_defaults(fn=cmd_dataset_ready)
 
     args = ap.parse_args(argv)
     try:

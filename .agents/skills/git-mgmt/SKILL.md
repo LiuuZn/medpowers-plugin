@@ -22,7 +22,7 @@ python3 .agents/skills/git-mgmt/git_mgmt.py validate          # 发布前校验�
 
 | 远端 | 地址 | 用途 | 推送规则 |
 |---|---|---|---|
-| `origin` | 私有 GitLab（gitlab.suoyin.info/liuxin/medpowers） | 日常开发与调试 | **未指明远端时一律推这里** |
+| `origin` | 私有 GitLab（gitlab.suoyin.info/medpowers/medpowers-plugin） | 日常开发与调试 | **未指明远端时一律推这里** |
 | `github` | 公有 GitHub（开源仓库） | 对外发布 | 仅当用户**当次明确指示**（远端未配置时先 `add-github`） |
 
 命令纪律：永远显式写远端与分支（`git push origin main`），**不用裸 `git push`**——双远端下裸命令的默认目标不明确；拉取统一走 self-update 技能或 `git pull --ff-only origin main`。

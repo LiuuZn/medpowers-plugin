@@ -91,7 +91,7 @@ description: 数据管理：统一规定训练数据的位置与格式，提供�
 
 `annotation`（标注契约，**训练开始前必须补全**，含 TODO 视同未补）：`produced_by`（脚本/工具/人工 + 可溯源说明）、`rule`（判定规则的具体定义——含测量平面、ROI、窗宽窗位，如「轴状面上椎体边界围成面积最大的切片」）、`tolerance`（标注粒度/允差，如「±1 片」）、`verified`（是否抽样核验）。规则来自人眼主观描述时，先按 methods/label-ceiling-diagnosis.md 做神谕探针/排名检验校核，再作为 strict 指标优化目标。
 
-`studio`（可选 provenance，从 Studio 拉取/对齐的数据集必须记录）：`repo_key` / `dataset_code` / `task_code`（任务=模型）/ `dataset_version` / `export_id`（后续导出包打通后）/ `annotation_revision_range` / `pulled_at`。**Studio 是数据与标注的唯一事实源**；本地只保存训练副本与 provenance，不回写标注。发现标注可疑时走 Studio 复核申请（`review_requested`），不得改本地标注充当修复。
+`studio`（可选 provenance，与 Studio 互转过的数据集必须记录）：`repo_key` / `dataset_code` / `dataset_id`（本地上传建库后由 `dataset show` 回填）/ `task_code`（任务=模型）/ `dataset_version` / `export_id`（后续导出包打通后）/ `annotation_revision_range` / `pushed_at`（本地上传建库时间）/ `pulled_at`（从 Studio 拉取时间）。**Studio 是数据与标注的唯一事实源**；本地只保存训练副本与 provenance，不回写标注。本地数据要推上 Studio 建库时走 studio 技能的「数据集接入」（需 `studio:dataset-manage` scope）；发现标注可疑时走 Studio 复核申请（`review_requested`），不得改本地标注充当修复。
 
 ## 流程
 

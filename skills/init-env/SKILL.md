@@ -57,7 +57,7 @@ python3 skills/init-env/init_env.py gpu-static
 5. **安装 medpowers 训练运行时客户端（python_env 为 ready 时）**——硬规则：**写入任务仓库 pyproject 的 medpowers 源必须跨机可解析**（pyproject/uv.lock 随 git 共享，他机 `uv sync` 按同一路径找包，路径失效即 import 失败）：
    - **先查现状**：读 pyproject 的 `[tool.uv.sources]`——已有 medpowers 源时先验证指向存在且 `uv run python -c "from medpowers import training_session"` 通过；**指向失效**（典型：他机写入的 `../mtskills` 兄弟目录路径或他机的插件缓存绝对路径在本机不存在）→ 按下条改为仓内相对源修复，并在汇报中提醒用户：**所有共用该仓库的机器都要做同样修复**；
    - **默认：仓内相对源**：任务仓库无 `.agents/medpowers` 时先按 INSTALL.md §5 装一份（嵌套 clone 须加 .gitignore；submodule 免），再 `cd <任务仓库工作区> && uv add ./.agents/medpowers`——写入 `path = ".agents/medpowers"`，每台机器各有一份副本、路径恒可解析，版本与插件一致（单机/多机通用）；
-   - 备选（不愿放仓内副本的多机仓库）：git tag 依赖 `uv add "medpowers@git+https://gitlab.suoyin.info/liuxin/medpowers.git@v<插件版本>"`，锁 tag、跨机只需 GitLab 凭据；
+   - 备选（不愿放仓内副本的多机仓库）：git tag 依赖 `uv add "medpowers@git+https://gitlab.suoyin.info/medpowers/medpowers-plugin.git@v<插件版本>"`，锁 tag、跨机只需 GitLab 凭据；
    - **禁止提交进多机共享 pyproject**：兄弟目录相对路径（`../mtskills` 这类）与插件缓存绝对路径只对写入的机器有效；单机仓库确要用绝对路径源（仅插件模式、不放 .agents 副本）必须向用户说明转多机前需改源；
    - 装完冒烟：`uv run python -c "from medpowers import training_session; print('ok')"`；失败不阻断初始化，在汇报中注明并建议后续补装。
 

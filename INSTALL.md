@@ -3,13 +3,13 @@
 **本文档是 medpowers 安装的唯一事实源**，供各类 AI 智能体（ZCode / Claude Code / Codex / Cursor / Trae 等）拉取后**自动完成安装**。把下面这行提示词发给任意 AI 助手，它应能仅凭本文档完成安装、验证与收尾汇报：
 
 ```
-帮我安装 medpowers：https://gitlab.suoyin.info/liuxin/medpowers/-/raw/main/INSTALL.md
+帮我安装 medpowers：https://gitlab.suoyin.info/medpowers/medpowers-plugin/-/raw/main/INSTALL.md
 ```
 
-人类读者亦可照读；背景与全景见 [README.md](README.md)。若上面的 raw URL 因私有仓库鉴权不可达：先 `git clone https://gitlab.suoyin.info/liuxin/medpowers.git`，再直接读仓库根的本文档。
+人类读者亦可照读；背景与全景见 [README.md](README.md)。若上面的 raw URL 因私有仓库鉴权不可达：先 `git clone https://gitlab.suoyin.info/medpowers/medpowers-plugin.git`，再直接读仓库根的本文档。
 
 - **适用版本**：v0.11.0 及以上（版本事实源：`.claude-plugin/plugin.json` 的 `version`）
-- **上游仓库**：`https://gitlab.suoyin.info/liuxin/medpowers.git`（私有 GitLab）；本机源副本：`/ssd/lx/medpowers`
+- **上游仓库**：`https://gitlab.suoyin.info/medpowers/medpowers-plugin.git`（私有 GitLab）；本机源副本：`/ssd/lx/medpowers`
 
 ---
 
@@ -41,7 +41,7 @@
 
 ## 3. 旧版（mtskills）检查与清理
 
-本插件原名 **mtskills**，2026-10-15 起更名为 **medpowers**（GitLab 路径同步迁移为 `https://gitlab.suoyin.info/liuxin/medpowers.git`，旧路径自动重定向）。曾安装旧版的机器上新旧两套会**并存**（技能前缀 `mtskills:` 与 `medpowers:` 重复加载；旧副本脚本读旧环境变量、行为停在旧版）。安装 medpowers 前先按下表检查三个遗留面；**全部未命中 → 无旧版，直接进 §4**。
+本插件原名 **mtskills**，2026-10-15 起更名为 **medpowers**（GitLab 路径同步迁移为 `https://gitlab.suoyin.info/medpowers/medpowers-plugin.git`，旧路径自动重定向）。曾安装旧版的机器上新旧两套会**并存**（技能前缀 `mtskills:` 与 `medpowers:` 重复加载；旧副本脚本读旧环境变量、行为停在旧版）。安装 medpowers 前先按下表检查三个遗留面；**全部未命中 → 无旧版，直接进 §4**。
 
 | 遗留面 | 检查 | 命中后清理（先报告用户，确认后执行） |
 |---|---|---|
@@ -62,9 +62,9 @@
 
 | 平台 | 谁来操作 | 步骤 |
 |---|---|---|
-| **ZCode** | 用户（图形界面） | 告知用户：Settings → Plugin Marketplace → Add，粘贴 `https://gitlab.suoyin.info/liuxin/medpowers.git`（或本地路径 `/ssd/lx/medpowers`） |
-| **Claude Code** | 用户（会话命令） | 把两行命令给用户执行：`/plugin marketplace add https://gitlab.suoyin.info/liuxin/medpowers.git` → `/plugin install medpowers@medpowers` |
-| **Codex** | 智能体（shell） | `codex plugin marketplace add https://gitlab.suoyin.info/liuxin/medpowers.git`，随后按 `codex plugin --help` 的实际子命令安装 medpowers |
+| **ZCode** | 用户（图形界面） | 告知用户：Settings → Plugin Marketplace → Add，粘贴 `https://gitlab.suoyin.info/medpowers/medpowers-plugin.git`（或本地路径 `/ssd/lx/medpowers`） |
+| **Claude Code** | 用户（会话命令） | 把两行命令给用户执行：`/plugin marketplace add https://gitlab.suoyin.info/medpowers/medpowers-plugin.git` → `/plugin install medpowers@medpowers` |
+| **Codex** | 智能体（shell） | `codex plugin marketplace add https://gitlab.suoyin.info/medpowers/medpowers-plugin.git`，随后按 `codex plugin --help` 的实际子命令安装 medpowers |
 
 **验证点 A**：让用户重启会话；新会话的可用技能列表中出现 `medpowers:` 前缀技能即成功，且**不应**再出现 `mtskills:` 前缀技能（若仍出现，说明旧插件未清理，回 §3 处理）。智能体无法自行重启会话，此步以用户确认为准。
 
@@ -124,7 +124,7 @@ done && echo "验证通过"
 | 源形态 | 命令 | 适用 |
 |---|---|---|
 | **仓内相对源（默认）** | `uv add ./.agents/medpowers`（无副本先按 §5 装；嵌套 clone 记得 .gitignore，submodule 免） | 单机/多机通用：每台机器各有一份 `.agents/medpowers` 副本，路径恒可解析，版本与插件一致 |
-| git tag 依赖（备选） | `uv add "medpowers@git+https://gitlab.suoyin.info/liuxin/medpowers.git@v<版本>"` | 不愿放仓内副本的多机仓库；跨机只需 GitLab 凭据，锁 tag |
+| git tag 依赖（备选） | `uv add "medpowers@git+https://gitlab.suoyin.info/medpowers/medpowers-plugin.git@v<版本>"` | 不愿放仓内副本的多机仓库；跨机只需 GitLab 凭据，锁 tag |
 
 **兄弟目录相对路径（如 `uv add ../mtskills`）与插件缓存绝对路径只对写入的那台机器有效，不得提交进多机共享的 pyproject**——他机一 sync 即 `ModuleNotFoundError: medpowers`。单机仓库用了这类源，转多机前先按下节改为仓内相对源。装完冒烟：`uv run python -c "from medpowers import training_session; print('ok')"`。训练入口集成见 `skills/notify/SKILL.md` 与 `medpowers/session.py` 的 docstring（`with training_session("EXP-001", gpus=[0,1], ...) as s:` 包住训练主流程）。
 
@@ -134,7 +134,7 @@ done && echo "验证通过"
 
 ```bash
 cd <任务仓库工作区>
-test -d .agents/medpowers || git clone https://gitlab.suoyin.info/liuxin/medpowers.git .agents/medpowers
+test -d .agents/medpowers || git clone https://gitlab.suoyin.info/medpowers/medpowers-plugin.git .agents/medpowers
 grep -q '^\.agents/medpowers' .gitignore || echo '.agents/medpowers/' >> .gitignore
 uv add ./.agents/medpowers        # 覆盖失效源声明，path 源改为仓内相对路径
 uv run python -c "from medpowers import training_session; print('ok')"
