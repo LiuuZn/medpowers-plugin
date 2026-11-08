@@ -154,8 +154,8 @@ with training_session("EXP-012", task="...", gpus=[0],
 
 | 方法 | 路径 | scope | 说明 |
 |---|---|---|---|
-| GET | `/api/scan-protocols` | read | 列出扫描流程（数据集必须绑定流程） |
-| POST | `/api/scan-protocols` | dataset-manage | 新建扫描流程 |
+| GET | `/api/scan-protocols` | read | 列出扫描流程（数据集必须绑定流程；平台预置标准流程优先选用） |
+| POST | `/api/scan-protocols` | dataset-manage | 新建扫描流程（仅当预置清单均不适用；命名建议「部位 模态 扫描」） |
 | GET | `/api/datasets` | read | 列出数据集（modality/status/search 过滤） |
 | POST | `/api/datasets` | dataset-manage | 新建数据集（`code` 唯一，必填 `modality` + `scan_protocol_id`，初始 `draft`） |
 | GET | `/api/datasets/{id}` | read | 数据集详情（含病例/患者/检查计数） |
@@ -182,10 +182,15 @@ CLI `--server-path` 只能传容器内可见路径；工作区工作流是先把
 
 ### 8.5 插件命令
 
+建数据集绑定扫描流程时，**优先选用平台预置标准流程**（`protocols` 列出，如 head_ct=头部 CT
+扫描、chest_ct=胸部 CT 扫描、abdomen_mr=腹部 MR 扫描；由 Studio 启动时自动补种）；仅当预置
+清单均不适用时才 `protocol create` 新建自定义流程，命名沿用「部位 + 模态 + 扫描」、编码用
+小写下划线。
+
 ```bash
 medpowers studio datasets [--modality MR] [--status draft] [--search ...]
 medpowers studio protocols
-medpowers studio protocol create --code mr_routine --name "MR 常规" --modality MR
+medpowers studio protocol create --code mr_routine --name "MR 常规" --modality MR   # 兜底：预置均不适用时
 medpowers studio dataset create --code mr_knee --name "膝关节 MR" --modality MR --protocol mr_routine
 medpowers studio dataset import --dataset mr_knee --upload <本地路径> [--confirm-backup]
 medpowers studio dataset import --dataset mr_knee --server-path /imports/knee --async --wait --confirm-backup

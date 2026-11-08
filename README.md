@@ -9,7 +9,7 @@
 > **选基础模型 → 诊断训练状态 → 推荐下一轮配置** 的完整调优闭环，
 > 以任务无关的知识资产 + 方法论 + 智能体技能的形式分发。
 
-![version](https://img.shields.io/badge/version-v0.15.0-0A7BFF)
+![version](https://img.shields.io/badge/version-v0.16.0-0A7BFF)
 ![platforms](https://img.shields.io/badge/platforms-ZCode%20%C2%B7%20Claude%20Code%20%C2%B7%20Codex-8757FF)
 ![assets](https://img.shields.io/badge/assets-41%20%E5%8D%A1-16A34A)
 ![skills](https://img.shields.io/badge/skills-8%20%E4%B8%AA-EA580C)
@@ -311,7 +311,7 @@ medpowers/
 
 <div align="center">
 
-**MEDPOWERS** · 医疗影像小模型训练方法论 · v0.15.0
+**MEDPOWERS** · 医疗影像小模型训练方法论 · v0.16.0
 
 方法论文本与代码不构成医疗建议 · 实验结论以程序化测量与用户审片为准
 

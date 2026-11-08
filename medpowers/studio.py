@@ -21,7 +21,7 @@
 数据集接入（把本地影像推上 Studio 建库；需 scope studio:dataset-manage + 管理员账号）：
     medpowers studio datasets
     medpowers studio protocols
-    medpowers studio protocol create --code mr_routine --name "MR 常规" --modality MR
+    medpowers studio protocol create --code mr_routine --name "MR 常规" --modality MR   # 仅当预置流程均不适用时；命名「部位 模态 扫描」
     medpowers studio dataset create --code mr_knee --name "膝关节 MR" --modality MR --protocol mr_routine
     medpowers studio dataset import --dataset mr_knee --upload /data/knee_mr/   # 目录自动打 ZIP 上传
     medpowers studio dataset import --dataset mr_knee --server-path /imports/knee_mr --async --wait
@@ -1081,7 +1081,7 @@ def cmd_datasets(args) -> int:
 def cmd_protocols(args) -> int:
     rows = _client(args).scan_protocols()
     if not rows:
-        print("（无扫描流程，用 protocol create 创建）")
+        print("（无扫描流程：平台应已预置标准流程，若确无适用项再用 protocol create 创建）")
         return 0
     for item in rows:
         print(
@@ -1348,9 +1348,11 @@ def main(argv=None) -> int:
 
     p = sub.add_parser("protocol", help="扫描流程管理")
     protocol_sub = p.add_subparsers(dest="protocol_cmd", required=True)
-    q = protocol_sub.add_parser("create", help="新建扫描流程（数据集必须绑定流程）")
-    q.add_argument("--code", required=True, help="流程编码，如 mr_routine")
-    q.add_argument("--name", required=True, help="流程名称")
+    q = protocol_sub.add_parser(
+        "create", help="新建扫描流程（优先用平台预置流程；仅当预置均不适用时新建）"
+    )
+    q.add_argument("--code", required=True, help="流程编码，小写下划线（如 mr_routine、knee_mr）")
+    q.add_argument("--name", required=True, help="流程名称（建议「部位 模态 扫描」，如 膝关节 MR 扫描）")
     q.add_argument(
         "--modality",
         nargs="+",
@@ -1369,7 +1371,9 @@ def main(argv=None) -> int:
     q.add_argument("--code", required=True, help="数据集编码（唯一）")
     q.add_argument("--name", required=True, help="数据集名称")
     q.add_argument("--modality", required=True, choices=DATASET_MODALITIES, help="模态")
-    q.add_argument("--protocol", required=True, help="扫描流程 id 或 code（protocols 查看）")
+    q.add_argument(
+        "--protocol", required=True, help="扫描流程 id 或 code（protocols 查看，优先预置标准流程）"
+    )
     q.add_argument("--description", default="")
     _add_runtime(q)
     q.set_defaults(fn=cmd_dataset_create)

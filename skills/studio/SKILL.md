@@ -27,8 +27,8 @@ description: MedPowers Studio 对接：设备码授权、任务/模型就绪查�
 | review | `... review request --annotation <id> --reason "..." [--eval <id>] [--evidence evidence.json]` | 发现可疑标注，申请人工复核；**不改标注内容** |
 | sync-exp | `... sync-exp` | 重放离线队列（Studio 恢复后） |
 | datasets | `... datasets [--modality MR] [--status draft] [--search 关键词]` | 列出数据集（id/code/模态/状态/病例数） |
-| protocols | `... protocols` | 列出扫描流程（建数据集必须绑定一个流程） |
-| protocol create | `... protocol create --code mr_routine --name "MR 常规" --modality MR` | 现有流程不适用时新建（也可网页端建） |
+| protocols | `... protocols` | 列出扫描流程（建数据集必须绑定一个；平台预置标准流程，优先选用） |
+| protocol create | `... protocol create --code mr_routine --name "MR 常规" --modality MR` | 预置流程均不适用时才新建自定义流程（命名「部位 模态 扫描」；也可网页端建） |
 | dataset create | `... dataset create --code mr_knee --name "膝关节 MR" --modality MR --protocol mr_routine` | 新建数据集（status=draft；code 唯一） |
 | dataset import | `... dataset import --dataset mr_knee --upload <本地路径>` 或 `--server-path <容器路径>` | 导入病例；详见「数据集接入」 |
 | dataset jobs | `... dataset jobs --dataset mr_knee [--job <id> --wait]` | 查看/等待后台导入任务 |
@@ -63,8 +63,8 @@ python3 skills/studio/studio.py auth --url http://10.0.0.20:8000 --repo-key <rep
 **流程**（每步的输出先看再走下一步）：
 
 ```bash
-python3 skills/studio/studio.py protocols                       # 1. 有无适用流程？没有先 protocol create
-python3 skills/studio/studio.py protocol create --code mr_routine --name "MR 常规" --modality MR
+python3 skills/studio/studio.py protocols                       # 1. 优先挑一个预置标准流程（头部 CT 扫描/腹部 MR 扫描…），下一步仅在均不适用时执行
+python3 skills/studio/studio.py protocol create --code mr_routine --name "MR 常规" --modality MR  # 自定义兜底：命名「部位 模态 扫描」
 python3 skills/studio/studio.py dataset create --code mr_knee --name "膝关节 MR" \
   --modality MR --protocol mr_routine                           # 2. 建库（draft）
 python3 skills/studio/studio.py dataset import --dataset mr_knee --upload /data/knee_mr/
@@ -87,6 +87,7 @@ python3 skills/studio/studio.py dataset ready --dataset mr_knee # 5. 全部导�
 - 不写标注内容；导入产生的病例默认无标注，标注在网页端人工进行。
 - `--confirm-backup` 的语义是"已自行备份原始数据"（后台任务服务端强制要求）：导入是复制、源数据不动，但代表用户确认过数据安全，**先向用户确认再传**。
 - 数据集 code 全局唯一（重复报 409）；`--dataset` 参数接受 id 或 code。
+- **扫描流程优先绑定平台预置标准流程**（`protocols` 查看，如 head_ct=头部 CT 扫描、abdomen_mr=腹部 MR 扫描、knee_mr=膝关节 MR 扫描）；新建自定义流程是兜底，命名沿用「部位 + 模态 + 扫描」，编码用小写英文/数字/下划线。
 - 大体量数据（数百例/数十 GB）优先 `--server-path --async --wait`，避免同步请求超时。
 
 **排障**：
@@ -98,7 +99,7 @@ python3 skills/studio/studio.py dataset ready --dataset mr_knee # 5. 全部导�
 | 「上传文件不是有效的 ZIP」 | `--upload` 打包失败或传了损坏压缩包 → 检查源目录；已是 .zip 的文件会原样上传 |
 | 400「路径不存在/不可见」 | `--server-path` 传了容器内看不到的路径 → 数据先放进实例 `imports/` 目录（容器 `/imports`），或改用 `--upload` |
 | 上传超限 | ZIP 超过 `MEDPOWERS_MAX_UPLOAD_MB` → 拆分、调大服务端配置，或改 `--server-path` |
-| 409 编码已存在 / 400 流程不适配模态 | 换 `--code`；或换/新建适用该模态的扫描流程（`protocols` 查看） |
+| 409 编码已存在 / 400 流程不适配模态 | 换 `--code`；或改绑其他适用该模态的扫描流程（**优先预置标准流程**，`protocols` 查看） |
 
 **建库后的关联动作**：数据集在 Studio 网页端关联到任务（Task）、指派标注；本地训练副本按 data-mgmt 管理，`dataset.json` 的 `studio` provenance 记 `repo_key/dataset_code/dataset_version/pulled_at`。
 
